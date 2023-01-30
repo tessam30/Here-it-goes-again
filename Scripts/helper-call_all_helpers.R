@@ -24,7 +24,7 @@
     load_secrets()
     merdata <- file.path(glamr::si_path("path_msd"))
     file_path <- return_latest(folderpath = merdata,
-      pattern = "Site_IM_.*Zambia")
+      pattern = "PSNU_IM_Zambia_Daily_20230130")
     
   # Grab metadata
    get_metadata(file_path)
@@ -45,7 +45,7 @@
     # Replaces mechanism names with a shorter version
     fix_mech_names <- function(.data) {
       .data %>%
-        dplyr::left_join(mech_names_cw, by = c("mech_code")) %>%
+        dplyr::left_join(mech_names_cw, by = c("mech_code", "mech_name")) %>%
         dplyr::mutate(mech_name = ifelse(
           !is.na(mech_name_short),
           mech_name_short,
