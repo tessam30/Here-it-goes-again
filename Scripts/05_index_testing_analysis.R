@@ -16,6 +16,9 @@
   # SI specific paths/functions  
     load_secrets()
 
+    msd_path <- return_latest(folderpath = merdata,
+                              pattern = "PSNU_IM_FY20-23.*Zambia.zip")
+    
   # Grab metadata
    get_metadata(file_path)
   
@@ -66,26 +69,91 @@
           TRUE ~ "#7C7C7C"
         ),
         note = case_when(
-          mod_type == "Index" & period == "FY22Q1" ~ "HTS_TST_POS",
+          mod_type == "Index" & period == "FY21Q1" ~ "HTS_TST_POS",
           TRUE ~ NA_character_
         )) %>% 
         filter(!is.na(mod_order))
       return(df_hts_full)
     }
+    
+    plot_modality <- function(df){
+      
+      mech_name <- df %>% distinct(mech_name) %>% pull()
+      
+      df %>% 
+        ggplot(aes(x = period)) +
+        geom_col(aes(y = pd_tot), fill = grey20k) +
+        geom_col(aes(y = value, fill = mod_color)) +
+        geom_errorbar(aes(ymin = pd_25, ymax = pd_25), 
+                      size = 0.25, color = "white", 
+                      linetype = "dotted") +
+        geom_errorbar(aes(ymin = pd_50, ymax = pd_50), 
+                      size = 0.25, color = "white", 
+                      linetype = "dotted") +
+        geom_errorbar(aes(ymin = pd_75, ymax = pd_75), 
+                      size = 0.25, color = "white", 
+                      linetype = "dotted") +
+        scale_fill_identity() +
+        facet_wrap(~mod_order) +
+        geom_text(aes(y = value, label = percent(start, 1)), size = 7/.pt, vjust = -0.5) +
+        geom_text(aes(y = value, label = percent(end, 1)), size = 7/.pt,  vjust = -0.5) +
+        geom_text(aes(y = pd_tot, label = note), size = 8/.pt, color = "#7C7C7C",
+                  hjust = 0.2, vjust = -0.25) +
+        labs(x = NULL, y = NULL,
+             title = glue("HTS MODALITY BY {mech_name} "),
+             caption = glue("Source: {metadata$caption}")) +
+        theme(legend.position = "none") +
+        scale_y_continuous(label = comma) +
+        scale_x_discrete(labels = c("FY21Q1", "", "", "",
+                                    "FY22Q1", "", "", "", 
+                                    "FY22Q3")) +
+        si_style_ygrid(facet_space = 0.5)  
+    }
+    
+    # Now can crank out partner plots
+    batch_modality_plot <- function(df, ip_code, export = TRUE){
+      
+      mech_name <- df %>% 
+        filter(mech_code == ip_code) %>% 
+        distinct(mech_name) %>% 
+        pull()
+      
+      print(mech_name)    
+      munge_modality(df, mech_code == ip_code) %>% 
+        plot_modality(.)
+      
+      if(export == TRUE)
+        si_save(glue("Graphics/HTS_modality_{mech_name}.svg"))
+    }
   
 
 # LOAD DATA ============================================================================  
 
-  df_genie <- read_msd(file_path)
+  df_genie_in <- read_msd(file_path) %>% 
+      filter(funding_agency == "USAID")
+    
+    df_msd <- read_msd(msd_path) %>% 
+      filter(fiscal_year %in% c(2021), funding_agency == "USAID")
+    
+    # bind these together b/c we need past TX_CURR to compute VLC
+    df_genie <- df_genie_in %>% 
+      bind_rows(df_msd) %>% 
+      filter(funding_agency == "USAID") %>% 
+      fix_mech_names() %>% 
+      mutate(snu1 = str_remove_all(snu1, " Province")) %>% 
+      clean_agency() %>% 
+      swap_targets() 
 
 # MUNGE ============================================================================
     
     munge_modality(df_genie %>% mutate(mech_code = 123456, mech_name = "USAID"), 
                    mech_code == 123456) %>% 
-      plot_modality(.)
+      filter(str_detect(period, "FY20", negate = T)) %>% 
+      plot_modality(.) 
+      si_save("Graphics/Index_testing_summary_by_modality.svg")
   
   
-# VIZ ============================================================================
+# PARTNER PLOTS ============================================================================
 
   #  
 
