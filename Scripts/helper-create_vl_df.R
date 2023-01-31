@@ -23,6 +23,7 @@ create_vl_df <- function(df, ...) {
       vlc = tx_pvls_d / tx_curr_lag2,
       vls = tx_pvls / tx_pvls_d,
       vls_adj = tx_pvls / tx_curr_lag2
-    )
+    ) %>% 
+    ungroup()
   return(df)
 }  
