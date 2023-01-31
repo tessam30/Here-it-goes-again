@@ -8,13 +8,11 @@
 
 # LOCALS & SETUP ============================================================================
 
-  devtools::install_github(repo = "USAID-OHA-SI/selfdestructin5", ref = "dev")
+  #devtools::install_github(repo = "USAID-OHA-SI/selfdestructin5", ref = "dev")
 
   library(gt)
   library(gtExtras)
   library(selfdestructin5) # check dev version
-
-  load_secrets()
 
   source("Scripts/helper-call_all_helpers.R")
     
