@@ -122,6 +122,36 @@
     top_hts / bottom_hts +
       plot_layout(heights = c(1, 4))
     si_save("Graphics/Linkage_summary.svg")
+    
+# OVERALL TESTING TRENDS --------------------------------------------------
+    
+    df_hts_combo <- df_hts_base %>% 
+      select(-targets) %>% 
+      spread(indicator, results) %>% 
+      mutate(positivity = HTS_TST_POS / HTS_TST)
+    
+    
+    df_hts_combo %>% 
+      ggplot(aes(x = period)) +
+      geom_col(aes(y = HTS_TST), fill = "#e0d4db", width = 0.75,
+               position = position_nudge(x = 0.1)) +
+      geom_col(aes(y = HTS_TST_POS), fill = "#855C75", width = 0.75) +
+      geom_text(aes(y = HTS_TST_POS, label = percent(HTS_TST_POS/HTS_TST, 1)),
+                size = 11/.pt, 
+                family = "Source Sans Pro", 
+                color = grey90k,
+                vjust = -0.5) +
+      #geom_col(aes(y = HTS_TST_cmltv), width = 0.5, fill = grey50k) +
+      #geom_col(aes(y = HTS_TST_POS_cmltv), width = 0.5, fill = "#855C75") +
+      si_style_ygrid() +
+      scale_y_continuous(labels = label_number_si()) +
+      labs(x = NULL, y = NULL, title = "TESTING REMAINS HIGH BUT POSITIVITY IS DOWN",
+           caption = metadata$caption)+
+      coord_cartesian(expand = F)
+    si_save("Graphics/HTS_positivity_summary.svg")
+    
+    
+    
 
 # Testing by age / snu1 ============================================================================
 
@@ -209,7 +239,7 @@
      labs(x = NULL, y = NULL,
           title = glue("HTS_TST VOLUME BY PROVINCE AND COARSE AGE"),
           subtitle = glue("Copperbelt and Central contributed {percent(peds_share_note)} of all pediatric tests in {metadata$curr_pd}"),
-          caption = glue("Source: {metadata$caption}")) 
+          caption = glue("{metadata$caption}")) 
    si_save("Graphics/HTS_TST_age_geograophy_trends.svg")
      
    
@@ -257,7 +287,7 @@
      labs(x = NULL, y = NULL,
           title = glue("HTS_TST_POS BY PROVINCE AND COARSE AGE"),
           subtitle = glue("Testing identified {tst_pos_note[1]} pediatric and {comma(tst_pos_note)[2]} adult cases in {metadata$curr_pd}"),
-          caption = glue("Source: {metadata$caption}")) 
+          caption = glue("{metadata$caption}")) 
    si_save("Graphics/HTS_TST_POS_age_geograophy_trends.svg")
    
    # Yield Heatbox to go below
@@ -280,4 +310,5 @@
      theme(legend.position = "none")
    
    si_save("Graphics/HTS_TST_POS_heatmap_age_geograophy_trends.svg")
+   
 
