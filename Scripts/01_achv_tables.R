@@ -32,7 +32,6 @@
       distinct(mech_name) %>% 
       pull(mech_name)
     
-    
     ip_mdb %>%   
       create_mdb(ou = "Zambia", type = "main", metadata$curr_pd, metadata$source) %>% 
       tab_header(

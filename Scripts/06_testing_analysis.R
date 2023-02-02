@@ -22,10 +22,39 @@
     # Grab metadata
     get_metadata(file_path)
   
+    # SNU list
+    snu1_list <- c("Muchinga", "NorthWestern", "Lusaka", "Eastern")
+    
   # REF ID for plots
     ref_id <- "fa267d47"
     
   # Functions  
+    # calculate shares
+    add_shares <- function(.data, ...){
+      .data %>% 
+        select(-targets) %>% 
+        spread(indicator, results) %>% 
+        group_by(period, ...) %>% 
+        mutate(share = HTS_TST / sum(HTS_TST, na.rm = T),
+               share_check = sum(share),
+               share_pos = HTS_TST_POS / sum(HTS_TST_POS, na.rm = T),
+               share_pos_check = sum(share_pos)) %>% 
+        ungroup() %>% 
+        mutate(share_label = case_when(
+          period %in% c(max(period), min(period))  ~ share, 
+          TRUE ~ NA_real_
+        ),
+        share_label_pos = case_when(
+          period %in% c(max(period), min(period))  ~ share_pos, 
+          TRUE ~ NA_real_
+        ), 
+        snu1_order = fct_reorder2(snu1, HTS_TST, share_label, .desc = T)
+        )
+    }
+    
+    
+    
+    
     pull_bounds <- function(df, age = "<15", var, bound = ""){
       
       if(bound == "max"){
@@ -177,24 +206,7 @@
     
    df_hts_viz <-  df_hts_age_geo %>% 
       filter(snu1 %ni% c("Southern", "Western")) %>% 
-      select(-targets) %>% 
-      spread(indicator, results) %>% 
-      group_by(period, trendscoarse) %>% 
-      mutate(share = HTS_TST / sum(HTS_TST, na.rm = T),
-             share_check = sum(share),
-             share_pos = HTS_TST_POS / sum(HTS_TST_POS, na.rm = T),
-             share_pos_check = sum(share_pos)) %>% 
-      ungroup() %>% 
-      mutate(share_label = case_when(
-        period %in% c(max(period), min(period))  ~ share, 
-        TRUE ~ NA_real_
-      ),
-      share_label_pos = case_when(
-        period %in% c(max(period), min(period))  ~ share_pos, 
-        TRUE ~ NA_real_
-      ), 
-      snu1_order = fct_reorder2(snu1, HTS_TST, share_label, .desc = T)
-      )
+     add_shares(., trendscoarse)
       
    #SNU1 list
    snu1_list <- c("Muchinga", "NorthWestern", "Lusaka", "Eastern")
@@ -253,7 +265,6 @@
    max2_adults_pos <- pull_bounds(df_hts_viz %>% filter(snu1 %in% snu1_list),
                               age = "15+", var = HTS_TST_POS, bound = "max")  
     
-   
    tst_pos_note <- 
      df_hts_viz %>% filter( period == max(period)) %>% 
      select(snu1, HTS_TST_POS, trendscoarse) %>% 
@@ -312,3 +323,130 @@
    si_save("Graphics/HTS_TST_POS_heatmap_age_geograophy_trends.svg")
    
 
+# AYP Analysis for HTS and TST_POS ----------------------------------------
+
+   df_hts_ayp <- 
+     df_genie %>% 
+     filter(indicator %in% c("HTS_TST_POS", "TX_NEW", "HTS_TST"), 
+            standardizeddisaggregate %in%  c("Modality/Age/Sex/Result", "Age/Sex/HIVStatus"),
+            fiscal_year <= metadata$curr_fy, 
+            funding_agency == "USAID",
+            ageasentered %in% c("15-19", "20-24")) %>% 
+     group_by(indicator, fiscal_year, snu1) %>% 
+     summarise(across(targets:qtr4, sum, na.rm = T), .groups = "drop") %>% 
+     reshape_msd(direction ="semi-wide") %>% 
+     group_by(indicator, snu1) %>% 
+     fill(targets, .direction = "down")  %>% 
+     filter(nchar(period) != 4) %>% 
+     ungroup() %>% 
+     mutate(trendscoarse = "AYP")
+   
+   # PLOTS TESTING / TST_POS by GEOGRAPHY AGE
+   # What is the share represented by each age/geo for each period?
+   
+   df_hts_ayp_viz <-  df_hts_ayp %>% 
+     filter(snu1 %ni% c("Southern", "Western")) %>% 
+     add_shares()
+   
+   # MAX pediatric 
+   max_ayp <- pull_bounds(df_hts_ayp_viz, age = "AYP", 
+                             var = HTS_TST, bound = "max")
+   max2_ayp <- pull_bounds(df_hts_ayp_viz %>% filter(snu1 %in% snu1_list),
+                              age = "AYP", var = HTS_TST, bound = "max")   
+   
+   
+   tst_note_ayp <- 
+     df_hts_ayp_viz %>% 
+     filter( period == max(period)) %>% 
+     select(snu1, share) %>% 
+     slice_max(share, n = 2) %>% 
+     summarize(tot = sum(share)) %>% 
+     pull()
+   
+   # Colors - bb69ad, AA4499
+   
+   
+   top <- df_hts_ayp_viz %>% 
+     mutate(viz_bounds = ifelse(snu1 %ni% snu1_list, max_ayp, max2_ayp),
+            qtr_colors = ifelse(str_detect(period, "Q1"), "#AA4499", "#bb69ad")) %>% 
+     ggplot(aes(x = period)) +
+     geom_blank(aes(y = viz_bounds)) +
+     geom_col(aes(y = HTS_TST, fill = qtr_colors), alpha = 0.9) +
+     facet_wrap(~ snu1_order, scales = "free_y",
+                labeller = labeller(.multi_line = FALSE), 
+                nrow = 2) +
+     geom_text(aes(y = HTS_TST, label = percent(share_label, 1.00)),
+               size = 9/.pt,
+               family = "Source Sans Pro",
+               fontface = "bold", 
+               color = grey90k, 
+               vjust = -0.5) +
+     si_style_ygrid() +
+     scale_fill_identity() +
+     scale_x_discrete(breaks = every_nth(n = 4)) +
+     scale_y_continuous(labels = label_number_si()) +
+     labs(x = NULL, y = NULL,
+          title = glue("HTS_TST_POS BY PROVINCE AND COARSE AGE"),
+          subtitle = glue("COPPERBLET AND CENTRAL PROVINCE CONTRIBUTED {percent(tst_note_ayp, 1.00)} OF ALL AYP TESTS IN {metadata$curr_pd}")) +
+     theme(axis.text.x = element_blank())
+   
+   
+   # Bottom half integrating in heat map circles
+   
+   
+   # HTS_TST_POS
+   
+   max_ayp_pos <- pull_bounds(df_hts_ayp_viz, age = "AYP", var = HTS_TST_POS, bound = "max") * 1.10
+   max2_ayp_pos <- pull_bounds(df_hts_ayp_viz %>% filter(snu1 %in% snu1_list),
+                                var = HTS_TST_POS, age = "AYP", bound = "max")
+
+   tst_pos_note <- 
+     df_hts_ayp_viz %>% filter( period == max(period)) %>% 
+     select(snu1, HTS_TST_POS) %>% 
+     summarize(tot = sum(HTS_TST_POS)) %>% 
+     pull()
+   
+   
+   #colors - #338073, #44aa99 
+   
+   bottom <- df_hts_ayp_viz %>% 
+     mutate(viz_bounds = ifelse(snu1 %ni% snu1_list, max_ayp_pos, max2_ayp_pos),
+            positivity = HTS_TST_POS / HTS_TST,
+            qtr_color = ifelse(str_detect(period, "Q1"), "#338073", "#44AA99"),
+            ymin = ifelse(snu1 %ni% snu1_list, -200, -66)
+            ) %>% 
+     ggplot(aes(x = period, group = trendscoarse)) +
+     geom_blank(aes(y = viz_bounds, group = trendscoarse)) +
+     geom_col(aes(y = HTS_TST_POS, fill = qtr_color), alpha = 0.9) +
+     geom_point(aes(y = ymin, color = positivity), shape = 19, size= 3.5) +
+     facet_wrap(trendscoarse ~ snu1_order, scales = "free_y",
+                labeller = labeller(.multi_line = FALSE), nrow = 2) +
+     geom_text(aes(y = HTS_TST_POS, label = percent(share_label_pos, 1.00)),
+               size = 9/.pt,
+               family = "Source Sans Pro",
+               fontface = "bold", 
+               color = grey90k, 
+               vjust = -0.5) +
+     geom_text(aes(y = ymin, label = percent(positivity, 1.00)),
+               size = 7/.pt,
+               family = "Source Sans Pro",
+               color = grey90k) +
+     si_style_ygrid() +
+     scale_x_discrete(breaks = every_nth(n = 4)) +
+     scale_y_continuous(labels = label_number_si()) +
+     scale_color_carto_c(palette = "Sunset",
+                         limits = c(0, .15), 
+                         oob = scales::squish) +
+     scale_fill_identity() + 
+     labs(x = NULL, y = NULL,
+          title = glue("HTS_TST_POS BY PROVINCE AND COARSE AGE"),
+          subtitle = glue("Testing identified {comma(tst_pos_note)} AYP cases in {metadata$curr_pd}"),
+          caption = glue("{metadata$caption}")) +
+     theme(legend.position = "none")
+   
+   top / bottom
+   si_save("Graphics/HTS_TST_POS_ayp_geography_trends.svg", scale = 1.25)
+   
+
+   
+   
