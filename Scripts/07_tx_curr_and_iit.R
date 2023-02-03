@@ -31,6 +31,8 @@
   # Site level Genie file for IIT analysis
     site_path <- return_latest(folderpath = merdata, 
                                pattern = "SITE_IM_Zambia_Daily")
+    
+    get_metadata(file_path)
   
   # REF ID for plots
     ref_id <- "5b0d0e46"
@@ -41,8 +43,11 @@
 # LOAD DATA ============================================================================  
 
   df_site <- read_msd(site_path)
+    
   df_genie <- read_msd(file_path) %>% 
-    mutate(snu1 = str_remove_all(snu1, " Province")) 
+    mutate(snu1 = str_remove_all(snu1, " Province")) %>% 
+    swap_targets() %>% 
+    fix_mech_names()
     
   full_pds <- (min(df_site$fiscal_year) - 1) %>% 
     paste0("-10-01") %>% 
@@ -54,7 +59,7 @@
 
 # PEDIATRIC TX_CURR GROWTH/SHRINKAGE=====================================================
   
-  df_tx <- df_genie %>% 
+  df_tx <- df_site %>% 
     filter(funding_agency == "USAID",
            indicator == "TX_CURR",
            standardizeddisaggregate == "Age/Sex/HIVStatus",
@@ -120,7 +125,7 @@
     filter(indicator == "TX_CURR", 
            standardizeddisaggregate == "Total Numerator") %>% 
     group_by(psnu, fiscal_year, indicator, funding_agency) %>% 
-    summarise(across(c("targets", "cumulative"))) %>% 
+    summarise(across(c("targets", "cumulative"), sum, na.rm = T)) %>% 
     ungroup() %>% 
     filter(str_detect(psnu, "Chama|Itezhi")) %>% 
     group_by(psnu, fiscal_year) %>% 
@@ -145,6 +150,206 @@
     facet_wrap(~psnu) +
     si_style_ygrid()
   si_save("Graphics/TX_CURR_target_shift.svg", scale = 1.5)
+  
+  # What proportion of loss clients were AYP and PEDS?
+  df_genie %>% 
+    filter(indicator == "TX_CURR", 
+           str_detect(psnu, "Chama|Itezhi"), 
+           standardizeddisaggregate == "Age/Sex/HIVStatus") %>% 
+    mutate(age = case_when(
+      ageasentered %in% c("<01", "01-04", "05-09", "10-14") ~ "peds",
+      ageasentered %in% c("15-19", "20-24") ~ "ayp",
+      TRUE ~ "adults"
+    )) %>% 
+    group_by(age, indicator, fiscal_year, funding_agency) %>% 
+    summarise(across(c("targets", "cumulative"), sum, na.rm = T)) 
+  
 
-# SPINDOWN ============================================================================
+# IIT Analysis ============================================================================
+  
+  df_iit <- df_site %>% 
+    swap_targets() %>% 
+    filter(funding_agency == "USAID",
+           indicator %in% c("TX_ML", "TX_CURR", "TX_NEW", "TX_RTT"), 
+           standardizeddisaggregate %in% c("Age/Sex/HIVStatus", "Age/Sex/ARTNoContactReason/HIVStatus")) %>%
+    group_by(fiscal_year, snu1, trendscoarse, facility, facilityuid, indicator) %>% 
+    #group_by(fiscal_year, snu1, facility, facilityuid, indicator, mech_code, mech_name, psnu) %>% 
+    summarise(across(starts_with("qtr"), sum, na.rm = TRUE), .groups = "drop") %>% 
+    reshape_msd(include_type = FALSE) %>% 
+    pivot_wider(names_from = "indicator",
+                names_glue = "{tolower(indicator)}") %>% 
+    arrange(period) %>% 
+    group_by(trendscoarse, facilityuid) %>% 
+    mutate(tx_curr_lag1 = lag(tx_curr, n = 1)) %>% 
+    ungroup()%>% 
+    rowwise() %>% 
+    mutate(iit = tx_ml / sum(tx_curr_lag1, tx_new, na.rm = TRUE)) %>% 
+    ungroup()
+  
+  df_iit %>% 
+    filter(trendscoarse == "<15", 
+           snu1 %ni% c("Eastern Province", "Southern Province")) %>% 
+    mutate(snu1 = factor(snu1, v_tx_lrg)) %>% 
+    filter(!is.na(snu1)) %>% 
+    ggplot(aes(period, iit, size = tx_curr_lag1)) +
+    geom_point(position = position_jitter(width = .2, seed = 42),
+               na.rm = TRUE, color = scooter,
+               alpha = .2) +
+    geom_smooth(aes(weight = tx_curr_lag1, group = snu1),
+                method = "loess",
+                formula = "y ~ x", se = FALSE, na.rm = TRUE,
+                size = 1.5, color = golden_sand) +
+    facet_wrap(~snu1) +
+    scale_size(label = comma) +
+    scale_x_discrete(labels = pd_brks) +
+    scale_y_continuous(limits = c(0,.25),
+                       label = percent_format(1),
+                       oob = oob_squish) +
+    labs(x = NULL, y = NULL,
+         size = "Site TX_CURR (1 period prior)",
+         title = glue("Pediatric IIT increased in {metadata$curr_pd}") %>% toupper,
+         subtitle = glue("IIT calculated in the largest {length(v_tx_lrg)} TX_CURR regions"),
+         caption = glue("IIT = TX_ML / TX_CURR_LAG1 + TX_NEW; ITT capped to 25%
+                        Source: {metadata$source}")) +
+    si_style() +
+    theme(panel.spacing = unit(.5, "line"),
+          plot.subtitle = element_markdown())
+  
+  #si_save("Images/IIT_adult_increase_snu1.png")
+  si_save("Images/IIT_ped_increase_snu1.png")
+  
 
+#  IIT SPARKLINES ---------------------------------------------------------
+
+  df_iit_snu1 <- df_site %>% 
+    swap_targets() %>% 
+    filter(funding_agency == "USAID",
+           indicator %in% c("TX_ML", "TX_CURR", "TX_NEW", "TX_RTT"), 
+           standardizeddisaggregate %in% c("Age/Sex/HIVStatus", "Age/Sex/ARTNoContactReason/HIVStatus")) %>%
+    group_by(fiscal_year, snu1, indicator) %>% 
+    summarise(across(starts_with("qtr"), sum, na.rm = TRUE), .groups = "drop") %>% 
+    reshape_msd(include_type = FALSE) %>% 
+    pivot_wider(names_from = "indicator",
+                names_glue = "{tolower(indicator)}") %>% 
+    group_by(snu1) %>% 
+    mutate(tx_curr_lag1 = lag(tx_curr, n = 1)) %>% 
+    ungroup()%>% 
+    rowwise() %>% 
+    mutate(iit = tx_ml / sum(tx_curr_lag1, tx_new, na.rm = TRUE)) %>% 
+    ungroup() %>% 
+    filter(period != min(period), 
+           str_detect(snu1, "Lusaka|Eastern|Southern", negate = T))
+  
+  df_iit_spark <- 
+    df_iit_snu1 %>% 
+    select(period, snu1, iit) %>% 
+    arrange(snu1, period) %>% 
+    group_by(snu1) %>% 
+    summarize(spark_iit = list(iit), .groups = "drop") 
+  
+  df_iit_snu1 %>% 
+    select(period, snu1, iit) %>%
+    spread(period, iit) %>% 
+    left_join(., df_iit_spark) %>% 
+    gt() %>%
+    gt_plt_sparkline(spark_iit, 
+                     same_limit = , type = "shaded", 
+                     fig_dim = c(10, 30),
+                     palette = c(grey70k, grey90k, old_rose_light, scooter_med, grey10k),
+                     label = F) %>% 
+    fmt_percent(columns = where(is.numeric)) %>% 
+    cols_label(snu1 = "",
+               spark_iit = "",
+               FY22Q2 = "Q2",
+               FY22Q3 = "Q3",
+               FY22Q4 = "Q4",
+               FY23Q1 = "Q1"
+    ) %>% 
+    tab_header(
+      title = glue("INTERRUPTION IN TREATMENT SUMMARY BY PROVINCE"),
+    ) %>% 
+    tab_spanner(
+      label = "FY22",
+      columns = 2:3
+    ) %>% 
+    tab_spanner(
+      label = "FY23",
+      columns = 5
+    ) %>% 
+    tab_source_note(
+      source_note = gt::md(glue("IIT = TX_ML / TX_CURR_LAG1 + TX_NEW\n
+                        Source: {metadata$source}"))) %>% 
+    tab_options(
+      source_notes.font.size = px(10)) %>% 
+    gt_theme_nytimes() %>% 
+    gtsave_extra("Images/USAID_iit_province.png")
+  
+
+# IIT SUMMARY BY MECHANISM ------------------------------------------------
+
+  df_iit_mech <- df_site %>% 
+    fix_mech_names() %>% 
+    swap_targets() %>% 
+    filter(funding_agency == "USAID",
+           indicator %in% c("TX_ML", "TX_CURR", "TX_NEW", "TX_RTT"), 
+           standardizeddisaggregate %in% c("Age/Sex/HIVStatus", "Age/Sex/ARTNoContactReason/HIVStatus"), 
+           mech_name != "Placeholder - 86412") %>% 
+    group_by(fiscal_year, indicator, mech_name) %>% 
+    summarise(across(starts_with("qtr"), sum, na.rm = TRUE), .groups = "drop") %>% 
+    reshape_msd(include_type = FALSE) %>% 
+    pivot_wider(names_from = "indicator",
+                names_glue = "{tolower(indicator)}") %>% 
+    group_by(mech_name) %>% 
+    mutate(tx_curr_lag1 = lag(tx_curr, n = 1)) %>% 
+    ungroup()%>% 
+    rowwise() %>% 
+    mutate(iit = tx_ml / sum(tx_curr_lag1, tx_new, na.rm = TRUE)) %>% 
+    ungroup() %>% 
+    filter(period != min(period))
+  
+  
+  df_iit_spark_mech <- 
+    df_iit_mech %>% 
+    select(period, mech_name, iit) %>% 
+    arrange(mech_name, period) %>% 
+    group_by(mech_name) %>% 
+    summarize(spark_iit = list(iit), .groups = "drop")     
+  
+  df_iit_mech %>% 
+    select(period, mech_name, iit) %>%
+    spread(period, iit) %>% 
+    left_join(., df_iit_spark_mech) %>% 
+    gt() %>%
+    gt_plt_sparkline(spark_iit, 
+                     same_limit = , type = "shaded", 
+                     fig_dim = c(15, 30),
+                     palette = c(grey70k, grey90k, old_rose_light, scooter_med, grey10k),
+                     label = F) %>% 
+    fmt_percent(columns = where(is.numeric)) %>% 
+    cols_label(mech_name = "",
+               spark_iit = "",
+               FY23Q1 = "Q1",
+               FY22Q2 = "Q2",
+               FY22Q3 = "Q3",
+               FY22Q4 = "Q4"
+    ) %>% 
+    tab_header(
+      title = glue("INTERRUPTION IN TREATMENT SUMMARY BY MECHANISM"),
+    ) %>% 
+    tab_spanner(
+      label = "FY22",
+      columns = 2:4
+    ) %>% 
+    tab_spanner(
+      label = "FY23",
+      columns = 5
+    ) %>% 
+  sub_missing(columns = everything(), missing_text = "-") %>% 
+    tab_source_note(
+      source_note = gt::md(glue("IIT = TX_ML / TX_CURR_LAG1 + TX_NEW\n
+                        Source: {metadata$source}"))) %>% 
+    tab_options(
+      source_notes.font.size = px(10)) %>% 
+    gt_theme_nytimes()
+  %>% 
+    gtsave_extra("Images/USAID_iit_mech.png")

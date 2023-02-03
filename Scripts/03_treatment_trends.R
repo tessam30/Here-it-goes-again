@@ -131,7 +131,7 @@
          subtitle = "Gray bars are TX_CURR targets",
          caption = metadata$caption)
   
-    si_save(glue("Graphics/{metadata$curr_pd}_TX_CURR_trends.png"), scale = 1.25)
+    si_save(glue("Graphics/{metadata$curr_pd}_TX_CURR_trends.svg"), scale = 1.25)
   
   # PEDS
     tx_curr_peds %>% 
@@ -169,13 +169,14 @@
       scale_fill_identity() +
       geom_text(data = . %>% filter(period == max(period)),
                 aes(y = results, label = comma(tx_curr_diff)), 
-                vjust = 1,
+                vjust = 1.2,
                 family = "Source Sans Pro",
-                size = 11/.pt) +
+                size = 11/.pt,
+                color = grey90k) +
       labs(x = NULL, y = NULL, title = glue("TX_CURR TRENDS BY PROVINCE AS OF {metadata$curr_pd}"),
            subtitle = "Gray bars are TX_CURR targets",
            caption = metadata$caption) 
-    si_save(glue("Graphics/{metadata$curr_pd}_TX_CURR_SNU1_trends.png"), scale = 1.25)
+    si_save(glue("Graphics/{metadata$curr_pd}_TX_CURR_SNU1_trends.svg"), scale = 1.25)
     
   tx_curr_cbelt %>% 
     group_by(psnu) %>% 
@@ -193,8 +194,9 @@
               aes(y = results, label = comma(tx_curr_diff)), 
               vjust = 1,
               family = "Source Sans Pro",
-              size = 11/.pt) +
-    labs(x = NULL, y = NULL, title = glue("TX_CURR TRENDS BY DISTRICT AS OF {metadata$curr_pd}"),
+              size = 11/.pt, 
+              color = grey90k) +
+    labs(x = NULL, y = NULL, title = glue("TX_CURR TRENDS BY COPPERBELT DISTRICTS AS OF {metadata$curr_pd}"),
          subtitle = "Gray bars are TX_CURR targets",
          caption = metadata$caption) 
-  si_save(glue("Graphics/{metadata$curr_pd}_TX_CURR_PSNU_trends.png"), scale = 1.25)
+  si_save(glue("Graphics/{metadata$curr_pd}_TX_CURR_PSNU_trends.svg"), scale = 1.25)
