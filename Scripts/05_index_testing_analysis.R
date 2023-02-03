@@ -146,8 +146,8 @@
 
 # MUNGE ============================================================================
     
-    munge_modality(df_genie %>% mutate(mech_code = 123456, mech_name = "USAID"), 
-                   mech_code == 123456) %>% 
+    munge_modality(df_genie %>% mutate(mech_code = "123456", mech_name = "USAID"), 
+                   mech_code == "123456") %>% 
       filter(str_detect(period, "FY20", negate = T)) %>% 
       plot_modality(.) 
       si_save("Graphics/Index_testing_summary_by_modality.svg")
@@ -155,7 +155,18 @@
   
 # PARTNER PLOTS ============================================================================
 
-  #  
+  #TEST Loop
+      plot_modality(df_genie %>% filter(mech_code == "17413"))
+      
+      # Loop over key partners  
+      partner_list <- df_genie %>% 
+        filter(str_detect(mech_name, "Action|DISCOVER|SAFE|ZAM")) %>% 
+        distinct(mech_code) %>% pull()
+      
+      map(partner_list, ~batch_modality_plot(df_genie, .x))
 
+      
+      
+      
 # SPINDOWN ============================================================================
 
