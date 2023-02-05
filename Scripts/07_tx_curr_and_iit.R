@@ -353,3 +353,42 @@
     gt_theme_nytimes()
   %>% 
     gtsave_extra("Images/USAID_iit_mech.png")
+  
+
+# TX_CURR AGE PROPORTIONS -------------------------------------------------
+
+  df_tx <- df_genie %>% 
+    filter(indicator == "TX_CURR", 
+           standardizeddisaggregate == "Age/Sex/HIVStatus", 
+             ageasentered %ni% c("Unknown Age"))
+  
+  
+  df_tx_all <- df_tx %>% 
+    bind_rows(df_tx %>% mutate(snu1 = "Zambia")) %>% 
+    group_by(ageasentered, fiscal_year, indicator, snu1) %>% 
+    summarise(tx_curr = sum(cumulative, na.rm = T), .groups = "drop") %>% 
+    spread(fiscal_year, tx_curr) %>% 
+    group_by(snu1) %>% 
+    mutate(tx_22_sh = `2022` /sum(`2022`, na.rm = T), 
+           tx_23_sh = `2023` /sum(`2023`, na.rm = T)) %>% 
+    ungroup() 
+    
+  # Heatmap
+  df_tx_all %>% 
+    mutate(label_color = ifelse(tx_22_sh > 0.07, "white", grey90k)) %>% 
+    ggplot(aes(y = snu1)) +
+    geom_tile(aes( x = ageasentered, fill = tx_23_sh), color = "white") + 
+    geom_text(aes(x = ageasentered, label = percent(tx_23_sh, 1), 
+                  color = label_color), 
+              size = 10/.pt) +
+    scale_fill_carto_c(palette = "SunsetDark") +
+    scale_color_identity() +
+    scale_x_discrete(position = "top") +
+    si_style_nolines() +
+    theme(legend.position = "none") +
+    labs(x = NULL, y = NULL, 
+         title = glue("{metadata$curr_pd} TX_CURR AGE PROPORTIONS BY PROVINCE"),
+         subtitle = "Each row adds to 100%",
+         caption = glue("{metadata$caption}"))
+  si_save("Graphics/TX_CURR_proportions_fy23q1.svg")
+    

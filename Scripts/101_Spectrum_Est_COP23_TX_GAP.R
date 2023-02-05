@@ -65,7 +65,7 @@
     filter(indicator == "TX_CURR",
            standardizeddisaggregate == "Age/Sex/HIVStatus",
            fiscal_year == metadata$curr_fy, 
-           ageasentered %ni% c("Unknown Age", "50+")) %>% 
+           ageasentered %ni% c("Unknown Age")) %>% 
     mutate(age_datim = case_when(
       ageasentered %in% c("<01", "01-04") ~ "00-04", 
       TRUE ~ ageasentered
@@ -126,7 +126,7 @@
     mutate(age_datim = case_when(
       age == "0-4" ~ "00-04",
       age == "5-9" ~ "05-09",
-      age %in% c("65-69", "70-74", "75-79", "80+") ~ "65+",
+      age %in% c("50-54", "55-59", "60-64", "65-69", "70-74", "75-79", "80+") ~ "50+",
       TRUE ~ age
     ),
     sex = str_to_title(sex)) 
