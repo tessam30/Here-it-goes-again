@@ -13,6 +13,8 @@
     source("Scripts/helper-call_all_helpers.R")
 
   library(readxl)
+  library(gtExtras)
+  library(gt)
   
   # REF ID for plots
     ref_id <- "d77f9986"
@@ -34,7 +36,9 @@
     janitor::clean_names()
   
     names(data_body)
-
+    
+    data_body_prov <- read_excel(plhiv_path, sheet = "Provincial", skip = 1) %>% 
+      janitor::clean_names()
   
   # Need to grab SNUs to filter out the extra rows in the genie pull
   df_genie <- read_msd(file_path)
@@ -68,6 +72,7 @@
            ageasentered %ni% c("Unknown Age")) %>% 
     mutate(age_datim = case_when(
       ageasentered %in% c("<01", "01-04") ~ "00-04", 
+      ageasentered %in% c("50+", "50-54", "55-59", "60-64", "65+") ~ "50+", 
       TRUE ~ ageasentered
     )) %>% 
     group_by(age_datim, indicator, sex, psnu, psnuuid, snu1) %>% 
@@ -75,7 +80,28 @@
     
   # This is the crosswalk we need for the ages
   df_tx %>% count(age_datim)
-    
+  
+  
+  df_tx_snu <- df_tx %>% 
+    group_by(snu1, age_datim, indicator, sex) %>% 
+    summarise(tx_fy23q1 = sum(tx_fy23q1, na.rm = T), .groups = "drop") %>% 
+    mutate(snu1 = str_remove_all(snu1, " Province"))
+  
+  
+# Show which provinces are not reporting 50+ disaggregates
+  df_genie %>% 
+    filter(indicator == "TX_CURR",
+           standardizeddisaggregate == "Age/Sex/HIVStatus",
+           fiscal_year == metadata$curr_fy, 
+           ageasentered %ni% c("Unknown Age")) %>% 
+    group_by(ageasentered, indicator, snu1) %>% 
+    summarize(tx_fy23q1 = sum(cumulative, na.rm = T), .groups = "drop") %>% 
+    spread(ageasentered, tx_fy23q1)
+  
+  
+
+# MUNGE PLHIV ESTIMATES ---------------------------------------------------
+
   # Tag provinces, making a new column that we can copy down to map districts to parent SNU
   plhiv <- data_body %>% 
     mutate(prov_tag = ifelse(x1 %in% prov_list, x1, NA_character_), 
@@ -87,6 +113,13 @@
                  values_to = "plhiv") %>% 
     separate(sex,into = c("sex", "cw_number"), sep = "_") %>% 
     rename(psnu = x1)
+  
+  plhiv_snu <- data_body_prov %>% 
+    pivot_longer(cols = male_2:female_35, 
+                 names_to = "sex",
+                 values_to = "plhiv") %>% 
+    separate(sex,into = c("sex", "cw_number"), sep = "_") %>% 
+    rename(snu1 = x1)
   
   # PLHIV header and crosswalk to get to age bands
   # One oddity put a "female" value in the age band spot. Remove this first
@@ -121,7 +154,7 @@
   setdiff( psnu_list$psnu, unique(plhiv_est$psnu))
   
   # Fix age bands before merging with df_tx
-  plhiv_est <- plhiv_est %>% 
+  plhiv_psnu <- plhiv_est %>% 
     left_join(psnu_list) %>% 
     mutate(age_datim = case_when(
       age == "0-4" ~ "00-04",
@@ -132,48 +165,177 @@
     sex = str_to_title(sex)) 
   
 
-  plhiv_gap_df <- plhiv_est %>% 
+  plhiv_snu <- plhiv_snu %>% 
+    left_join(plhiv_cw) %>%  mutate(age_datim = case_when(
+      age == "0-4" ~ "00-04",
+      age == "5-9" ~ "05-09",
+      age %in% c("50-54", "55-59", "60-64", "65-69", "70-74", "75-79", "80+") ~ "50+",
+      TRUE ~ age
+    ),
+    sex = str_to_title(sex),
+    snu1 = ifelse(snu1 == "North-Western", "NorthWestern", snu1))
+  
+  # Do the Provincial names align? YES, after modification above
+  plhiv_snu %>% count(age_datim, sex)
+  
+  setdiff(unique(plhiv_snu$snu1), unique(df_tx_snu$snu1))
+  
+    
+
+# CALCUATE THE TX GAP -----------------------------------------------------
+
+  plhiv_gap_df <- plhiv_psnu %>% 
     group_by(age_datim, sex, psnuuid) %>% 
-    summarize(plhiv_datim = sum(plhiv, na.rm = T), .groups = "drop") %>% 
+    summarize(plhiv_datim = sum(plhiv, na.rm = T), .groups = "drop") %>%
     right_join(., df_tx) %>% 
     mutate(tx_gap = plhiv_datim - tx_fy23q1,
            snu1 = str_remove_all(snu1, " Province")) %>% 
     clean_column()
-    
+  
+  plhiv_gap_snu <- plhiv_snu %>% 
+    group_by(age_datim, sex, snu1) %>% 
+    summarize(plhiv_datim = sum(plhiv, na.rm = T), .groups = "drop") %>%
+    right_join(., df_tx_snu) %>% 
+    mutate(tx_gap = plhiv_datim - tx_fy23q1)
   
 # VIZ ============================================================================
 
   # BY SNU1, SHOW how the PLHIV GAPS STACK UP across district
+  # Ages are wonky post 50+, need to recalculate gap to this point
   
-  plhiv_gap_df %>% 
+  plhiv_gap_snu %>% 
     filter(str_detect(snu1, "Military", negate = T)) %>% 
     group_by(snu1, age_datim) %>% 
-    summarise(across(c(tx_gap, tx_fy23q1, plhiv_datim), sum, na.rm = T), .groups = "drop") 
+    summarise(across(c(tx_gap, tx_fy23q1, plhiv_datim), sum, na.rm = T), .groups = "drop") %>% 
+    mutate(snu_order = fct_reorder(snu1, plhiv_datim, .desc = T)) %>% 
     ggplot(aes(y = age_datim)) +
-    geom_col(aes(x = plhiv_datim), fill = golden_sand, width = 0.75 ) +
-    geom_col(aes(x = tx_fy23q1), fill = denim, width = 0.75) +
-    facet_wrap(~snu1, 
+    geom_col(aes(x = plhiv_datim), fill = grey20k, width = 0.75 ) +
+    geom_col(aes(x = tx_fy23q1), fill = scooter, width = 0.75) +
+    facet_wrap(~snu_order, 
                labeller = labeller(.multi_line = F), 
                scales = "free_x") +
     geom_text(aes(x = plhiv_datim, label = comma(round(tx_gap, 0))), 
               family = "Source Sans Pro",
               size = 8/.pt, 
-              hjust = -1, 
+              hjust = 0, 
               color = grey90k) +
-    si_style_xgrid(facet_space = 0.5) 
+    si_style_xgrid(facet_space = 0.5) +
+    scale_x_continuous(labels = comma) +
+    labs(x = NULL, y = NULL, 
+         title = glue("COP23 PRELIMINARY PLHIV ESTIMATES & FY23Q1 TX_CURR"),
+         subtitle = "PLHIV gap represented by space between PLHIV estimates & TX_CURR",
+         caption = glue("{metadata$caption} & Spectrum 2023 Estimates"))
+  si_save("Graphics/COP23_PLHIV_GAP_free_scales.svg")
     
+
+# PLHIV GAP BY AGE BANDS --------------------------------------------------
+
+  
   # What is alleged PLHIV GAP for PEDS? FOR AYPS?
-    plhiv_gap_df %>% 
+   plhiv_gap_age <-  plhiv_gap_snu %>% 
       mutate(age_custom = case_when(
         age_datim %in% c("00-04", "05-09", "10-14") ~ "Peds",
         age_datim %in% c("15-19", "20-24") ~ "AYP",
         TRUE ~ age_datim
       )) %>% 
       group_by(age_custom) %>% 
-      summarise(across(c(plhiv_datim, tx_fy23q1, tx_gap), sum, na.rm = T), .groups = "drop") 
+      summarise(across(c(plhiv_datim, tx_fy23q1, tx_gap), sum, na.rm = T), .groups = "drop") %>% 
+      mutate(age_custom = fct_relevel(age_custom, c("Peds", "AYP", "25-29",
+                                                    "30-34", "35-39", "40-44",
+                                                    "45-49", "50+"))) %>%
+      arrange(age_custom) %>%
+    janitor::adorn_totals("row")
+    
+  plhiv_gap_age %>% 
+      gt() %>% 
+      gt::cols_label(plhiv_datim = "PLHIV", 
+                tx_fy23q1 = "FY23 TX_CURR ", 
+                tx_gap = "Treatment Gap",
+                age_custom = "Age") %>% 
+      fmt_number(where(is.numeric), 
+                 decimals = 0) %>% 
+      tab_source_note(
+        source_note = gt::md(glue("{metadata$caption} & Spectrum 2023 Estimates"))) %>% 
+      tab_options(
+        source_notes.font.size = px(10)) %>% 
+      gt_theme_nytimes() %>% 
+      tab_header(
+        title = glue("COP23 PRELIMINARY TREATMENT GAP SUMMARY"),
+      ) %>% 
+      tab_style(
+        style = list(
+          cell_text(weight = "bold")
+        ),
+        locations = cells_body(
+          columns = everything(),
+          rows = age_custom == "Total"
+        )
+      ) %>% 
+     gtsave_extra( filename = "Images/COP23_TX_AGE_GAP.png")
     
   
-  
 
-# SPINDOWN ============================================================================
+#  BY SNU, what do the numbers look like? ---------------------------------
+
+  plhiv_gap_age_snu <-  plhiv_gap_snu %>% 
+    mutate(age_custom = case_when(
+      age_datim %in% c("00-04", "05-09", "10-14") ~ "Peds",
+      age_datim %in% c("15-19", "20-24") ~ "AYP",
+      TRUE ~ age_datim
+    )) %>% 
+    group_by(age_custom, snu1) %>% 
+    summarise(across(c(plhiv_datim, tx_fy23q1, tx_gap), sum, na.rm = T), .groups = "drop") %>% 
+    mutate(age_custom = fct_relevel(age_custom, c("Peds", "AYP", "25-29",
+                                                  "30-34", "35-39", "40-44",
+                                                  "45-49", "50+"))) %>%
+    arrange(age_custom)
+
+
+
+make_snu1_plhiv_table <- function(df, snu){
+  df %>% 
+    filter(snu1 == {{snu}}) %>% 
+    janitor::adorn_totals("row") %>% 
+    mutate(snu1 = ifelse(snu1 == "-", {{snu}}, snu1)) %>% 
+    gt(groupname_col = "snu1") %>% 
+    gt::cols_label(plhiv_datim = "PLHIV", 
+                   tx_fy23q1 = "FY23 TX_CURR ", 
+                   tx_gap = "Treatment Gap",
+                   age_custom = "Age") %>% 
+    fmt_number(where(is.numeric), 
+               decimals = 0) %>% 
+    tab_source_note(
+      source_note = gt::md(glue("{metadata$caption} & Spectrum 2023 Estimates"))) %>% 
+    tab_options(
+      source_notes.font.size = px(10)) %>% 
+    gt_theme_nytimes() %>% 
+    tab_header(
+      title = glue("COP23 PRELIMINARY TREATMENT GAP SUMMARY"),
+    ) %>% 
+    tab_style(
+      style = list(
+        cell_text(weight = "bold")
+      ),
+      locations = cells_body(
+        columns = everything(),
+        rows = age_custom == "Total"
+      )
+    ) %>% 
+    tab_style(
+      style = list(
+        cell_text(weight = "bold")
+        ),
+      locations = cells_row_groups()
+    ) %>% 
+    gtsave_extra( filename = glue("Images/COP23_{snu}_TX_AGE_GAP.png"))
+  }
+
+prov_list <- plhiv_gap_age_snu %>% 
+  filter(str_detect(snu1, "Military", negate = T)) %>% 
+  distinct(snu1) %>% 
+  pull()
+
+map(prov_list, .f = ~make_snu1_plhiv_table(plhiv_gap_age_snu, snu = .x))
+
+
 
