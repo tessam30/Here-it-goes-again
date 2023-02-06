@@ -360,7 +360,11 @@
   df_tx <- df_genie %>% 
     filter(indicator == "TX_CURR", 
            standardizeddisaggregate == "Age/Sex/HIVStatus", 
-             ageasentered %ni% c("Unknown Age"))
+             ageasentered %ni% c("Unknown Age")) %>% 
+    mutate(ageasentered = case_when(
+      ageasentered %in% c("50+", "50-54", "55-59", "60-64", "65+") ~ "50+",
+      TRUE ~ ageasentered
+    ))
   
   
   df_tx_all <- df_tx %>% 
