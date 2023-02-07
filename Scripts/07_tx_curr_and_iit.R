@@ -394,5 +394,5 @@
          title = glue("{metadata$curr_pd} TX_CURR AGE PROPORTIONS BY PROVINCE"),
          subtitle = "Each row adds to 100%",
          caption = glue("{metadata$caption}"))
-  si_save("Graphics/TX_CURR_proportions_fy23q1.svg")
+  si_save("Graphics/TX_CURR_proportions_50+_fy23q1.svg")
     
