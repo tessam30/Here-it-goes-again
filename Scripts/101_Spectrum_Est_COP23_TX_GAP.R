@@ -244,6 +244,7 @@
                                                     "30-34", "35-39", "40-44",
                                                     "45-49", "50+"))) %>%
       arrange(age_custom) %>%
+    mutate(gap_share = tx_gap / sum(tx_gap, na.rm = T)) %>% 
     janitor::adorn_totals("row")
     
   plhiv_gap_age %>% 
@@ -251,9 +252,12 @@
       gt::cols_label(plhiv_datim = "PLHIV", 
                 tx_fy23q1 = "FY23 TX_CURR ", 
                 tx_gap = "Treatment Gap",
-                age_custom = "Age") %>% 
+                age_custom = "Age",
+                gap_share = "Share of Gap") %>% 
       fmt_number(where(is.numeric), 
                  decimals = 0) %>% 
+      fmt_percent(columns = gap_share, 
+                  decimals = 0) %>% 
       tab_source_note(
         source_note = gt::md(glue("{metadata$caption} & Spectrum 2023 Estimates"))) %>% 
       tab_options(
@@ -295,15 +299,19 @@
 make_snu1_plhiv_table <- function(df, snu){
   df %>% 
     filter(snu1 == {{snu}}) %>% 
+    mutate(gap_share = tx_gap / sum(tx_gap, na.rm = T)) %>% 
     janitor::adorn_totals("row") %>% 
     mutate(snu1 = ifelse(snu1 == "-", {{snu}}, snu1)) %>% 
     gt(groupname_col = "snu1") %>% 
     gt::cols_label(plhiv_datim = "PLHIV", 
                    tx_fy23q1 = "FY23 TX_CURR ", 
                    tx_gap = "Treatment Gap",
-                   age_custom = "Age") %>% 
+                   age_custom = "Age", 
+                   gap_share = "Share of Gap") %>% 
     fmt_number(where(is.numeric), 
                decimals = 0) %>% 
+    fmt_percent(columns = gap_share,
+                decimals = 0) %>% 
     tab_source_note(
       source_note = gt::md(glue("{metadata$caption} & Spectrum 2023 Estimates"))) %>% 
     tab_options(
