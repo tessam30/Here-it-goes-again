@@ -58,13 +58,18 @@
     
 # MUNGE ============================================================================
 
-# TX_CURR ADULTS -------------------------------------------------    
+# TX_ML PEDS -------------------------------------------------    
+    df_genie %>% 
+    filter(funding_agency == "USAID", 
+           indicator == "TX_ML", 
+           standardizeddisaggregate == "Age/Sex/ARTCauseofDeath",
+           ageasentered %in% c("01-04", "05-09", "10-14")) %>% 
+    group_by(indicator, otherdisaggregate, fiscal_year) %>% 
+    summarise(across(c(cumulative), sum, na.rm = T), .groups = "drop") %>% 
+    spread(fiscal_year, cumulative) %>% 
+    janitor::adorn_totals(where = "row")
     
-    
-    
-    
-    
-    
+      
 # TX_CURR PEDS -------------------------------------------------
   
   tx_curr_all <- df_genie %>% 
