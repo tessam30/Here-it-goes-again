@@ -379,7 +379,7 @@
     
   # Heatmap
   df_tx_all %>% 
-    mutate(label_color = ifelse(tx_22_sh > 0.07, "white", grey90k)) %>% 
+    mutate(label_color = ifelse(tx_23_sh > 0.07, "white", grey90k)) %>% 
     ggplot(aes(y = snu1)) +
     geom_tile(aes( x = ageasentered, fill = tx_23_sh), color = "white") + 
     geom_text(aes(x = ageasentered, label = percent(tx_23_sh, 1), 
