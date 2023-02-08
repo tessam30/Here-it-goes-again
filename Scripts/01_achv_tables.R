@@ -83,6 +83,13 @@
   mech_list <- c(82075, 17413, 17399, 82086)
   map(mech_list, ~mk_ptr_tbl(df_genie, .x))
   
+  # Special table that maps ZIHA target back to SAFE
+  df_safe <- df_genie %>% 
+    filter(mech_code %in% c(86412, 17413)) %>% 
+    mutate(mech_code = "17413", 
+           mech_name = "SAFE (with ZIHA Targets)")
+  
+  mk_ptr_tbl(df_safe, 17413)
 
 # Summary ACHV table ============================================================================
 
