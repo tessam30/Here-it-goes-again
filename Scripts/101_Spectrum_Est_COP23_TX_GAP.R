@@ -44,8 +44,6 @@
   df_genie <- read_msd(file_path)
   
   
-
-  
 # MUNGE ============================================================================
 
   # filter list of PSNUs to tag districts (copy down)
@@ -86,6 +84,15 @@
     group_by(snu1, age_datim, indicator, sex) %>% 
     summarise(tx_fy23q1 = sum(tx_fy23q1, na.rm = T), .groups = "drop") %>% 
     mutate(snu1 = str_remove_all(snu1, " Province"))
+  
+  df_tx_agency <- 
+    df_tx %>% 
+    filter(str_detect(snu1, "Military", negate = T)) %>% 
+    mutate(snu1 = str_remove_all(snu1, " Province")) %>% 
+    left_join(., prov_agency_cw) %>% 
+    group_by(snu1_agency, age_datim, indicator, sex) %>% 
+    summarise(tx_fy23q1 = sum(tx_fy23q1, na.rm = T), .groups = "drop")
+  
   
   
 # Show which provinces are not reporting 50+ disaggregates
@@ -173,10 +180,13 @@
       TRUE ~ age
     ),
     sex = str_to_title(sex),
-    snu1 = ifelse(snu1 == "North-Western", "NorthWestern", snu1))
+    snu1 = ifelse(snu1 == "North-Western", "NorthWestern", snu1)) %>% 
+    group_by(age_datim, sex, snu1) %>% 
+    summarize(plhiv = sum(plhiv, na.rm = T)) %>% 
+    left_join(., prov_agency_cw)
   
   # Do the Provincial names align? YES, after modification above
-  plhiv_snu %>% count(age_datim, sex)
+  plhiv_snu %>% count(age_datim, sex) %>% spread(sex, n)
   
   setdiff(unique(plhiv_snu$snu1), unique(df_tx_snu$snu1))
   
@@ -185,18 +195,27 @@
 # CALCUATE THE TX GAP -----------------------------------------------------
 
   plhiv_gap_df <- plhiv_psnu %>% 
-    group_by(age_datim, sex, psnuuid) %>% 
-    summarize(plhiv_datim = sum(plhiv, na.rm = T), .groups = "drop") %>%
+    group_by(age_datim, sex, psnuuid, psnu) %>% 
+    summarize(plhiv_datim = sum(plhiv, na.rm = T), .groups = "drop") %>% 
     right_join(., df_tx) %>% 
     mutate(tx_gap = plhiv_datim - tx_fy23q1,
            snu1 = str_remove_all(snu1, " Province")) %>% 
-    clean_column()
+    clean_column() %>% 
+    left_join(., prov_agency_cw)
   
   plhiv_gap_snu <- plhiv_snu %>% 
-    group_by(age_datim, sex, snu1) %>% 
+    group_by(age_datim, sex, snu1_agency, snu1) %>% 
     summarize(plhiv_datim = sum(plhiv, na.rm = T), .groups = "drop") %>%
     right_join(., df_tx_snu) %>% 
-    mutate(tx_gap = plhiv_datim - tx_fy23q1)
+    mutate(tx_gap = plhiv_datim - tx_fy23q1) 
+    
+  
+  plhiv_gap_agency <- plhiv_snu %>% 
+    group_by(age_datim, sex, snu1_agency) %>% 
+    summarize(plhiv_datim = sum(plhiv, na.rm = T), .groups = "drop") %>%
+    right_join(., df_tx_agency) %>% 
+    mutate(tx_gap = plhiv_datim - tx_fy23q1) 
+
   
 # VIZ ============================================================================
 
@@ -226,9 +245,108 @@
          subtitle = "PLHIV gap represented by space between PLHIV estimates & TX_CURR",
          caption = glue("{metadata$caption} & Spectrum 2023 Estimates"))
   si_save("Graphics/COP23_PLHIV_GAP_free_scales.svg")
+  
+
+
+# TREATMENT GAP BY AGENCY AND AGE BANDS -----------------------------------
+  
+  # TODO -- clean up labels, get rid of negatives
+  # Calculate for overall gaps (table)
+
+  plhiv_gap_agency %>% 
+    group_by(snu1_agency, age_datim, sex) %>% 
+    mutate(pct_gap = (tx_gap / plhiv_datim)) %>% 
+    ungroup() %>% 
+    ggplot(aes(y = age_datim)) +
+    geom_col(data = . %>% filter(sex == "Female"), aes(x = -plhiv_datim), fill = grey20k, width = 0.75 ) +
+    geom_col(data = . %>% filter(sex == "Female"), aes(x = -tx_fy23q1), fill = moody_blue, width = 0.75) +
+    geom_col(data = . %>% filter(sex == "Male"), aes(x = plhiv_datim), fill = grey20k, width = 0.75 ) +
+    geom_col(data = . %>% filter(sex == "Male"), aes(x = tx_fy23q1), fill = genoa, width = 0.75) +
+    facet_wrap(~snu1_agency, 
+               labeller = labeller(.multi_line = F)) +
+    geom_text(data = . %>% filter(sex == "Female"), 
+              aes(x = -plhiv_datim, label = str_c(comma(round(tx_gap, 0)), "\n", percent(pct_gap, 1))), 
+              family = "Source Sans Pro SemiBold",
+              size = 10/.pt, 
+              hjust = 1.1, 
+              color = grey90k) +
+    geom_text(data = . %>% filter(sex == "Male"), 
+              aes(x = plhiv_datim, label = str_c(comma(round(tx_gap, 0)), "\n", percent(pct_gap, 1))), 
+              family = "Source Sans Pro SemiBold",
+              size = 10/.pt, 
+              hjust = -0.1, 
+              color = grey90k) +
+    geom_vline(xintercept = 0, linewidth = 1, color = grey90k) +
+    si_style_xgrid(facet_space = 0.5) +
+    scale_x_continuous(labels = comma) +
+    labs(x = NULL, y = NULL, 
+         title = glue("COP23 PRELIMINARY PLHIV ESTIMATES & FY23Q1 TX_CURR BY AGENCY, SEX & AGE"),
+         subtitle = "Treatment gap represented by space between PLHIV estimates & TX_CURR",
+         caption = glue("{metadata$caption} & Spectrum 2023 Estimates"))
+  si_save("Graphics/COP23_PLHIV_GAP_AGENCY_SEX_AGE.svg")
+  
+  
+
+# TX_GAP BY AGENCY --------------------------------------------------------
+
+  plhiv_gap_agency %>% 
+    group_by(snu1_agency, sex) %>% 
+    summarize(across(c(plhiv_datim, tx_fy23q1, tx_gap), sum, na.rm = T), .groups = "drop") %>% 
+    mutate(gap_share = (tx_gap / sum(tx_gap))) %>% 
+    gt(groupname_col = "snu1_agency") %>% 
+    #gt_theme_nytimes() %>% 
+    summary_rows(groups = TRUE,
+                 columns = 3:5,
+                 fns = list("Agency Total" = ~sum(., na.rm = TRUE)), 
+                 formatter = fmt_number, 
+                 decimals = 0) %>% 
+    summary_rows(groups = TRUE,
+                 columns = 6,
+                 fns = list("Agency Total" = ~sum(., na.rm = T)), 
+                 formatter = fmt_percent, 
+                 decimals = 0) %>% 
+    fmt_number(columns = 3:5, 
+               decimals = 0) %>% 
+    fmt_percent(columns = 6, 
+                decimals = 0) %>% 
+    grand_summary_rows(
+                       columns = 3:5,
+                       fns = list(Zambia = ~sum(., na.rm = TRUE)), 
+                       formatter = fmt_number, 
+                       decimals = 0
+                       ) %>% 
+    gt_theme_nytimes() %>% 
+    tab_style(
+      style = list(
+        cell_text(weight = "bold")
+      ),
+      locations = cells_row_groups()
+    ) %>% 
+    tab_header(title = "TREATMENT GAP BY FUNDING AGENCY & SEX") %>% 
+    tab_source_note(
+      source_note = gt::md(glue("{metadata$caption} & Spectrum 2023 Estimates"))) %>% 
+    tab_options(
+      source_notes.font.size = px(10)) %>% 
+    tab_style(style = cell_text(
+      font = google_font("Source Sans Pro"), 
+      weight = 600, 
+      size = px(16)), 
+      locations = cells_grand_summary()) %>% 
+    tab_style(style = cell_text(
+      font = google_font("Source Sans Pro"), 
+      weight = 600, 
+      size = px(16)), 
+      locations = cells_summary()) %>% 
+    cols_label(plhiv_datim = "PLHIV", 
+               tx_fy23q1 = "FY23 TX_CURR ", 
+               tx_gap = "Treatment Gap",
+               gap_share = "Share of Overall Gap"
+    ) %>% 
+    gtsave_extra( filename = "Images/COP23_TX_SEX_GAP_SHARE.png")
+
     
 
-# PLHIV GAP BY AGE BANDS --------------------------------------------------
+ # PLHIV GAP BY AGE BANDS --------------------------------------------------
 
   
   # What is alleged PLHIV GAP for PEDS? FOR AYPS?

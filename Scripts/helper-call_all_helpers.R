@@ -12,7 +12,7 @@
     library(gagglr)
     library(tidyverse)
     library(scales)
-    library(sf)
+    #library(sf)
     library(extrafont)
     library(tidytext)
     library(patchwork)
