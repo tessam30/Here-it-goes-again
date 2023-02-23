@@ -47,6 +47,7 @@
     
     highest_snus <- function(df, indic = "HIV Prevalence"){
       df %>% 
+        group_by(year) %>% 
         filter(indicator == {{indic}}, prov_leader < 4) %>%
         arrange(desc(est)) %>% 
         mutate(snu1 = str_to_upper(snu1)) %>% 
@@ -57,7 +58,7 @@
 # LOAD DATA ============================================================================  
 
   phia <- read_sheet("1pT53ohURDYrawWeC0rJ1omfd2_awMp-F1q0kxZlaHsY", sheet = "PHIA_GEO") %>% 
-      group_by(indicator) %>% 
+      group_by(indicator, year) %>% 
       mutate(prov_leader = dense_rank(-est))
 
 # MUNGE ============================================================================
@@ -67,36 +68,47 @@
     
   phia %>% 
       filter(indicator == "HIV Prevalence") %>% 
-      mutate(prov = fct_reorder(snu1, est),
+      arrange(year, snu1) %>% 
+      group_by(snu1) %>% 
+      mutate(diff = est - lag(est),
+             max = max(est), 
+             min = min(est)) %>%
+      fill(diff, .direction = "up") %>%
+      fill(max, .direction = "updown") %>% 
+      ungroup() %>% 
+      mutate(prov = fct_reorder(snu1, max),
              est_label = case_when(
-               prov == "Lusaka" ~ str_c(label_percent(scale = 1)(est), " Prevalence"), 
+               prov == "Western" ~ str_c(label_percent(scale = 1)(est), " Prevalence"), 
                TRUE ~ str_c(label_percent(scale = 1)(est))
              )) %>% 
-      ggplot(aes(y = prov)) +
-      geom_linerange(aes(xmin = lb, xmax = ub), size = 2.5, color = grey20k) +
-      geom_point(aes(x = est, fill = est), size = 4, shape = 21) +
-      geom_text(data = . %>% filter(prov_leader == 1), 
-                aes(x = lb, label = "lower\nbound"), size = 8/.pt, 
-                family = "Source Sans Pro",
-                color = grey50k, 
-                hjust = 1) +
-      geom_text(data = . %>% filter(prov_leader == 1),
-                aes(x = ub, label = "upper\nbound"), size = 8/.pt, 
-                family = "Source Sans Pro",
-                color = grey50k, 
-                hjust = 0) +
-      geom_text(aes(x = est, label = est_label), size = 12/.pt, 
+      ggplot(aes(y = prov, group = factor(year))) +
+      #geom_linerange(aes(xmin = lb, xmax = ub), size = 2.5, color = grey20k) +
+    geom_linerange(aes(xmin = min, xmax = max), size = 2.5, color = grey20k)+
+      geom_point(aes(x = est, fill = factor(year)), size = 4, shape = 21) +
+
+      # geom_text(data = . %>% filter(prov_leader == 1), 
+      #           aes(x = lb, label = "lower\nbound"), size = 8/.pt, 
+      #           family = "Source Sans Pro",
+      #           color = grey50k, 
+      #           hjust = 1) +
+      # geom_text(data = . %>% filter(prov_leader == 1),
+      #           aes(x = ub, label = "upper\nbound"), size = 8/.pt, 
+      #           family = "Source Sans Pro",
+      #           color = grey50k, 
+      #           hjust = 0) +
+      ggrepel::geom_text_repel(aes(x = est, label = est_label), size = 12/.pt, 
                 family = "Source Sans Pro",
                 color = grey90k, 
                 vjust = -1) +
       scale_x_continuous(labels = label_percent(scale = 1), position = "top") +
-      rcartocolor::scale_fill_carto_c(palette = "SunsetDark") +
+      rcartocolor::scale_fill_carto_d(palette = "SunsetDark") +
       si_style_xgrid() +
-      theme(legend.position = "none") +
+      theme(legend.position = "top") +
       labs(x = "HIV Prevalence", y = NULL,
            title = glue("ACCORDING TO THE 2021 ZAMPHIA, HIV PREVALENCE (15+) IS HIGHEST IN {prev_snus*} PROVINCES", .transformer = collapse_transformer(sep = ", ", last = " AND ")),
            subtitle = "USAID primarily covers Copperbelt, Central, Luapula, Northern, Northwestern, and Muchinga",
-           caption = "Source: ZAMPHIA 2021 Summary Sheet | December 2022")
+           caption = "Source: ZAMPHIA 2021 Summary Sheet | December 2022",
+           fill = "Survey year")
     si_save("Images/ZAMPHIA_Prevalence_by_snu1.png", scale = 1.25)
     
     
