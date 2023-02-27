@@ -66,6 +66,57 @@
       "Male",         "00-04",     "Male, 3-4 yrs"
     )
     
+    # Function for creating histograms
+    
+    get_hist <- function(df, metric, bins = 30, lines = 13) {
+      df %>%
+        filter(str_detect(psnu, "_Military", negate = T)) %>%
+        ggplot(aes(x = {{ metric }}, fill = ..x..)) +
+        geom_histogram(bins = bins, color = "white") +
+        scale_y_continuous(expand = c(0.01, 0)) +
+        theme(
+          axis.text.y = element_blank(),
+          legend.position = "none"
+        ) +
+        labs(x = NULL, y = NULL) +
+        geom_hline(yintercept = seq(0, lines), size = 0.1, color = "White") +
+        si_style_xline() +
+        theme(
+          axis.text.y = element_blank(),
+          axis.ticks.x = element_line(size = 0.5, color = "#d3d3d3")
+        ) +
+        scale_x_continuous(
+          trans = "log", labels = comma,
+          breaks = 10^(1:6)
+        ) +
+        scale_fill_viridis_c(
+          alpha = 0.75, option = "B",
+          direction = -1,
+          labels = comma,
+          guide = "none",
+          trans = "log"
+        ) 
+    }
+    
+    
+    get_map <- function(df, metric) {
+      ggplot() +
+        geom_sf(data = psnu_outline, color = grey20k, size = 1.5) +
+        geom_sf(data = df, aes(fill = {{ metric }}, geometry = geometry), color = "white") +
+        #geom_sf_text(data = df, aes(label = psnu, geometry = geometry), size = 7/.pt, color = grey90k) +
+        si_legend_fill() +
+        si_style_void() +
+        theme(
+          legend.position = "none",
+          panel.grid.major = element_blank()
+        ) +
+        scale_fill_viridis_c(
+          alpha = 0.75, trans = "log", option = "B",
+          direction = -1,
+          labels = comma,
+          breaks = 10^(1:6)
+        )
+    }
 
     
 
@@ -266,8 +317,11 @@
       mutate(art_adj = case_when(
         is.na(currently_on_art_november_2022) & is.na(currently_on_art_december_2022) ~ currently_on_art_october_2022,
         is.na(currently_on_art_december_2022) & !is.na(currently_on_art_november_2022) ~ currently_on_art_november_2022,
-        TRUE ~ currently_on_art_december_2022)
+        TRUE ~ currently_on_art_december_2022),
       ) %>% 
+      rowwise() %>% 
+      mutate(art_adj_max = max(currently_on_art_october_2022, currently_on_art_november_2022, currently_on_art_december_2022, 
+                               na.rm = T)) %>% 
       select(-starts_with("currently"))
     
     
@@ -275,12 +329,13 @@
     df_moh_psnu <- 
       df_moh_datim_trim %>% 
       group_by(snu1 = province, psnu = district, age_datim = ageasentered, sex) %>% 
-      summarize(tx_curr_moh = sum(art_adj, na.rm = T), .groups = "drop")
+      summarize(across(c(art_adj, art_adj_max), sum, na.rm = T), .groups = "drop")
+
     
     df_moh_snu1 <- 
       df_moh_psnu %>% 
       group_by(snu1, age_datim, sex) %>% 
-      summarize(tx_curr_moh = sum(tx_curr_moh), .groups = "drop")      
+      summarize(across(c(art_adj, art_adj_max), sum, na.rm = T), .groups = "drop")
     
 
 
@@ -309,8 +364,21 @@
     
   # NOW MERGE!!! BOTH MOH AND DATIM TO COMPARE
   
+  # Add in MSD b/c things seem wonky
+  df_tx_psnu_agealt <- 
+    df_msd_tx %>% 
+    mutate(age_datim = case_when(
+      age_datim %in% c("35-39", "40-44", "45-49") ~ "35-49",
+      TRUE ~ age_datim
+    )) %>% 
+    group_by(age_datim, sex, psnuuid, psnu) %>% 
+    summarize(tx_curr_msd = sum(tx_fy23q1, na.rm = T), .groups = "drop") %>% 
+    filter(str_detect(psnu, "Military", negate = T)) %>% 
+    clean_column()
+    
+  map(list(plhiv_psnu, df_tx_psnu_agealt), ~names(.x))
   
-  
+  # Lunga PSNU will have 3 rows that do not match
   art_gap_psnu <- plhiv_psnu %>%
     mutate(age_datim = case_when(
       age_datim %in% c("35-39", "40-44", "45-49") ~ "35-49",
@@ -318,8 +386,23 @@
     )) %>% 
     group_by(age_datim, sex, psnuuid, psnu) %>% 
     summarize(plhiv = sum(plhiv, na.rm = T), .groups = "drop") %>% 
+    tidylog::left_join(., df_tx_psnu_agealt, by = c("psnuuid", "psnu", "age_datim", "sex")) %>% 
     tidylog::left_join(., df_moh_psnu) %>% 
-    mutate(art_gap = plhiv - tx_curr_moh)
+    mutate(art_gap = plhiv - art_adj)
+  
+  
+  
+  # SNU Data  
+  df_tx_snu_agealt <- 
+    df_tx_snu %>% 
+    mutate(age_datim = case_when(
+      age_datim %in% c("35-39", "40-44", "45-49") ~ "35-49",
+      TRUE ~ age_datim
+    )) %>% 
+    group_by(age_datim, sex, snu1) %>% 
+    summarize(tx_curr_msd = sum(tx_fy23q1, na.rm = T), .groups = "drop") %>% 
+    filter(str_detect(snu1, "Military", negate = T))
+  
   
   art_gap_snu1 <- 
     plhiv_snu %>% 
@@ -329,15 +412,142 @@
     )) %>% 
     group_by(age_datim, sex, snu1, snu1uid) %>% 
     summarize(plhiv = sum(plhiv, na.rm = T), .groups = "drop") %>% 
+    tidylog::left_join(., df_tx_snu_agealt) %>% 
     tidylog::left_join(., df_moh_snu1) %>% 
-    mutate(art_gap = plhiv - tx_curr_moh)
-  
+    mutate(art_gap = plhiv - art_adj, 
+           art_gap_max = plhiv - art_adj_max,
+           art_gap_msd = plhiv - tx_curr_msd) 
 
-    
+  art_gap_snu1 %>% write_csv("Dataout/SNU1_Spectrum_MOH_art_merged_COP23.csv") 
+  art_gap_psnu %>% write_csv("Dataout/PSNU_Spectrum_MOH_art_merged_COP23.csv") 
     
 # VIZ ============================================================================
+  art_gap_snu1 %>% 
+    group_by(snu1) %>% 
+    summarise(across(c(art_gap, art_adj, plhiv), sum, na.rm = T), .groups = "drop") 
+  
+  art_gap_snu1 %>% 
+    group_by(snu1, age_datim) %>% 
+    summarise(across(c(art_gap, art_adj, plhiv), sum, na.rm = T), .groups = "drop") %>% 
+    mutate(snu_order = fct_reorder(snu1, plhiv, .desc = T)) %>% 
+    ggplot(aes(y = age_datim)) +
+    geom_col(aes(x = plhiv), fill = grey20k, width = 0.75 ) +
+    geom_col(aes(x = art_adj), fill = scooter, width = 0.75) +
+    facet_wrap(~snu_order, 
+               labeller = labeller(.multi_line = F), 
+               scales = "free_x") +
+    geom_text(aes(x = plhiv, label = comma(round(art_gap, 0))), 
+              family = "Source Sans Pro",
+              size = 8/.pt, 
+              hjust = 0, 
+              color = grey90k) +
+    si_style_xgrid(facet_space = 0.5) +
+    scale_x_continuous(labels = comma) +
+    labs(x = NULL, y = NULL, 
+         title = glue("COP23 PRELIMINARY PLHIV ESTIMATES & MOH TX_CURR"),
+         subtitle = "PLHIV gap represented by space between PLHIV estimates & TX_CURR",
+         caption = glue("MOH ART December 2022 & Spectrum 2023 Estimates"))
+  si_save("Graphics/COP23_PLHIV_GAP_free_scales.svg", scale = 1.25)
 
-  #  
+  
+  
 
-# SPINDOWN ============================================================================
+# TABLES ------------------------------------------------------------------
 
+
+  
+  
+  
+  
+# MAP Request ============================================================================
+  
+  # Request for Maps showing PLHIV by <15, AYP and All
+  # Maps 1-3: district map of Zambia with PLHIV estimates by age (peds, AYP, and total)
+  # Maps 4-5: district map of Zambia with treatment gap by age (peds, AYP, total)
+  
+  shpdata <- glamr::si_path("path_vector")
+  #  PULL IN PSNU MAPS info
+  snu1_geo <- st_read("../Zambezi/GIS/snu1_fy22.shp")
+  plot(snu1_geo)
+  
+  cntry <- "Zambia"
+  spdf_pepfar <- gisr::get_vcpolygons(path = shpdata, name = "VcPepfarPolygons.shp")
+  zmb_geo <- purrr::map(3:5, ~spdf_pepfar %>% gisr::extract_boundaries(country = cntry, 
+                                                                       level = .x))
+  names(zmb_geo) <- list("adm0", "snu1", "psnu")
+  
+  art_gap_psnu_geo <- art_gap_psnu %>% left_join(zmb_geo$psnu, by = c("psnuuid" = "uid")) 
+  
+  psnu_outline <- st_union(st_make_valid(st_set_precision(zmb_geo$psnu, 1e7)))
+  st_crs(psnu_outline)
+  
+  # Helper functions
+  pull_ave <- function(df){
+    df %>% 
+      summarise(ave = mean(plhiv, na.rm = T)) %>% 
+      pull()
+  }
+  
+  filter_plhiv <- function(df, age_range){
+    df %>% 
+      filter(age_datim %in% age_range) %>% 
+      group_by(psnu, psnuuid, geometry) %>% 
+      summarise(plhiv = sum(plhiv, na.rm = T), .groups = "drop") 
+  }
+
+  
+  # Map 1 <15
+  peds_plhiv <- filter_plhiv(art_gap_psnu_geo, age_range = c("00-04", "05-09", "10-14"))
+  
+  peds_map <- peds_plhiv %>% 
+    get_map(., plhiv) 
+
+  peds_ave <- pull_ave(peds_plhiv)
+  
+  peds_hist <- get_hist(peds_plhiv, metric = plhiv, bins = 45) + 
+    geom_vline(xintercept = peds_ave, size = 0.5, color = grey90k, linetype = "dotted") 
+  
+  peds_map +
+    inset_element(peds_hist, left = 0, bottom = 0.75, right = 0.5, top = 1) +
+    plot_annotation(title = "Zambia (0 - <15) CLHIV estimates for COP23",
+                    caption = "Source: Spectrum Estimates 2/22/2023")
+    
+  si_save("Graphics/clhiv_total_inset.svg", scale = 1.25)
+  
+  # AYP
+  ayp_plhiv <- filter_plhiv(art_gap_psnu_geo, age_range = c("15-19", "20-24"))
+  
+  ayp_map <- ayp_plhiv %>% 
+    get_map(., plhiv) 
+
+  ayp_ave <- pull_ave(ayp_plhiv) 
+    
+  ayp_hist <- get_hist(ayp_plhiv, metric = plhiv, bins = 30) + 
+    geom_vline(xintercept = ayp_ave, size = 0.5, color = grey90k, linetype = "dotted") 
+  
+  ayp_map +
+    inset_element(ayp_hist, left = 0, bottom = 0.75, right = 0.5, top = 1) +
+    plot_annotation(title = "Zambia AYP (15 - 24) PLHIV estimates for COP23",
+                    caption = "Source: Spectrum Estimates 2/22/2023")
+  
+  si_save("Graphics/ayp_plhiv_total_inset.svg", scale = 1.25)
+
+  # ALL POP
+  all_plhiv <- art_gap_psnu_geo %>% 
+    group_by(psnu, psnuuid, geometry) %>% 
+    summarise(plhiv = sum(plhiv, na.rm = T), .groups = "drop") 
+  
+  all_map <- all_plhiv %>% 
+    get_map(., plhiv) 
+  
+  all_ave <- pull_ave(all_plhiv) 
+  
+  all_hist <- get_hist(all_plhiv, metric = plhiv, bins = 30) + 
+    geom_vline(xintercept = all_ave, size = 0.5, color = grey90k, linetype = "dotted") 
+  
+  all_map +
+    inset_element(all_hist, left = 0, bottom = 0.75, right = 0.5, top = 1) +
+    plot_annotation(title = "Zambia PLHIV estimates for COP23",
+                    caption = "Source: Spectrum Estimates 2/22/2023")
+  si_save("Graphics/ALL_plhiv_total_inset.svg", scale = 1.25)
+  
