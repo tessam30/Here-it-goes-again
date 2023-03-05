@@ -190,7 +190,7 @@
       filter(str_detect(snu1, "Military", negate = T)) %>% 
       mutate(snu1 = str_remove_all(snu1, " Province")) %>% 
       left_join(., prov_agency_cw) %>% 
-      group_by(snu1_agency, age_datim, indicator, sex) %>% 
+      group_by(snu1_agency, age_datim, indicator, sex, snu1) %>% 
       summarise(tx_fy23q1 = sum(tx_fy23q1, na.rm = T), .groups = "drop")
 
 # SPECTRUM ESTIMATES ------------------------------------------------------
@@ -390,8 +390,6 @@
     tidylog::left_join(., df_moh_psnu) %>% 
     mutate(art_gap = plhiv - art_adj)
   
-  
-  
   # SNU Data  
   df_tx_snu_agealt <- 
     df_tx_snu %>% 
@@ -449,13 +447,90 @@
          caption = glue("MOH ART December 2022 & Spectrum 2023 Estimates"))
   si_save("Graphics/COP23_PLHIV_GAP_free_scales.svg", scale = 1.25)
 
-  
-  
 
 # TABLES ------------------------------------------------------------------
-
-
+    
+  # What is agency deficits? Collapse to comparable groups
+  df_tx_agency_sub <- 
+    df_tx_agency %>% 
+    mutate(age_datim = case_when(
+      age_datim %in% c("35-39", "40-44", "45-49") ~ "35-49", 
+      TRUE ~ age_datim
+    )) %>% 
+    group_by(age_datim, sex, snu1_agency, snu1) %>% 
+    summarise(tx_curr_msd = sum(tx_fy23q1, na.rm = T), .groups = "drop") 
+    
+  plhiv_gap_agency <- plhiv_snu %>% 
+    mutate(age_datim = case_when(
+      age_datim %in% c("35-39", "40-44", "45-49") ~ "35-49",
+      TRUE ~ age_datim
+    )) %>% 
+    group_by(age_datim, sex, snu1, snu1uid) %>% 
+    summarize(plhiv = sum(plhiv, na.rm = T), .groups = "drop") %>% 
+    tidylog::left_join(., df_tx_agency_sub) %>% 
+    tidylog::left_join(., df_moh_snu1) %>% 
+    mutate(art_gap = plhiv - art_adj, 
+           art_gap_max = plhiv - art_adj_max,
+           art_gap_msd = plhiv - tx_curr_msd)   
+    
+    
+    
+  plhiv_gap_agency %>% 
+    group_by(snu1_agency, sex) %>% 
+    summarize(across(c(plhiv, art_adj, art_gap), sum, na.rm = T), .groups = "drop") %>% 
+    mutate(gap_share = (art_gap / sum(art_gap))) %>% 
+    gt(groupname_col = "snu1_agency") %>% 
+    #gt_theme_nytimes() %>% 
+    summary_rows(groups = TRUE,
+                 columns = 3:5,
+                 fns = list("Agency Total" = ~sum(., na.rm = TRUE)), 
+                 formatter = fmt_number, 
+                 decimals = 0) %>% 
+    summary_rows(groups = TRUE,
+                 columns = 6,
+                 fns = list("Agency Total" = ~sum(., na.rm = T)), 
+                 formatter = fmt_percent, 
+                 decimals = 0) %>% 
+    fmt_number(columns = 3:5, 
+               decimals = 0) %>% 
+    fmt_percent(columns = 6, 
+                decimals = 0) %>% 
+    grand_summary_rows(
+      columns = 3:5,
+      fns = list(Zambia = ~sum(., na.rm = TRUE)), 
+      formatter = fmt_number, 
+      decimals = 0
+    ) %>% 
+    gt_theme_nytimes() %>% 
+    tab_style(
+      style = list(
+        cell_text(weight = "bold")
+      ),
+      locations = cells_row_groups()
+    ) %>% 
+    tab_header(title = "TREATMENT GAP BY FUNDING AGENCY & SEX") %>% 
+    tab_source_note(
+      source_note = gt::md(glue("{metadata$caption} & Spectrum 2023 Estimates"))) %>% 
+    tab_options(
+      source_notes.font.size = px(10)) %>% 
+    tab_style(style = cell_text(
+      font = google_font("Source Sans Pro"), 
+      weight = 600, 
+      size = px(16)), 
+      locations = cells_grand_summary()) %>% 
+    tab_style(style = cell_text(
+      font = google_font("Source Sans Pro"), 
+      weight = 600, 
+      size = px(16)), 
+      locations = cells_summary()) %>% 
+    cols_label(plhiv = "PLHIV", 
+               art_adj= "FY23 TX_CURR ", 
+               art_gap = "Treatment Gap",
+               gap_share = "Share of Overall Gap"
+    ) %>% 
+    gtsave_extra( filename = "Images/COP23_TX_SEX_GAP_SHARE.png")
   
+    
   
   
   
