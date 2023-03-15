@@ -79,9 +79,63 @@
       separate(sex,into = c("sex", "cw_number"), sep = "_") %>% 
       rename(psnu = district)
   
+    # Need to tag in the sex attributes to the crosswalk
+    # Looking at the original Excel file we see that Column B corresponds to cw_number == 2
+    # So for all even cw_numbers we will tag them as female, and the rest as male
+    # Realized I don't need to do this as sex is included in the plhiv df (leaving in to show)
+    plhiv_cw <- header %>% 
+      select(-1) %>% 
+      pivot_longer(cols = x2:x15,
+                   names_to = "cw_number",
+                   values_to = "age") %>% 
+      mutate(cw_number = str_remove_all(cw_number, "x")) %>% 
+      fill(age, .direction = c("down")) %>% 
+      mutate(sex = case_when(
+        as.numeric(cw_number) %% 2 == 0 ~ "female",
+        TRUE ~ "male"
+      ))
+    
+    # Check that the merge variables are compatible types
+    map(list(plhiv$cw_number, plhiv_cw$cw_number), ~summary(.x))
+
+    
+    plhiv_est_df <- plhiv %>% left_join(., plhiv_cw)
+    
+# TODO ============================================================================
+
+  # TODO: Munging practice
+  # Try to create a dataframe of just the provincial estimates using the names in the prov list
+  # and the `data_body` and `header` data frame
+
 # VIZ ============================================================================
-
-  #  
-
-# SPINDOWN ============================================================================
+    
+    # TODO: 
+    # Review the code chunk below and try to create a population pyramid of the estimates by age / sex
+    # for each province (All contained in a single ggplot)
+    
+    plhiv_est_df %>% 
+      group_by(sex, age) %>% 
+      summarize(plhiv = sum(plhiv, na.rm = T), .groups = "drop") %>% 
+      ggplot(aes(y = age)) +
+      geom_col(data = . %>% filter(sex == "female"), aes(x = -plhiv), fill = moody_blue) +
+      geom_col(data = . %>% filter(sex == "male"), aes(x = plhiv), fill = genoa) +
+      geom_text(data = . %>% filter(sex == "female"),
+                aes(x = -plhiv, label = comma(plhiv, 1)),
+                family = "Source Sans Pro SemiBold",
+                size = 10/.pt,
+                hjust = 1.1,
+                color = grey90k) +
+      geom_text(data = . %>% filter(sex == "male"),
+                aes(x = plhiv, label = comma(plhiv, 1)),
+                family = "Source Sans Pro SemiBold",
+                size = 10/.pt,
+                hjust = -0.1,
+                color = grey90k) +
+      geom_vline(xintercept = 0, linewidth = 1, color = grey90k) +
+      si_style_xgrid() +
+      scale_x_continuous(labels = ~ scales::label_number_si()(abs(.))) +
+      labs(x = NULL, y = NULL, 
+           title = glue("WHAT IS THE MAIN TAKEAWAY?"),
+           caption = glue("Source: Spectrum PLHIV estimates | {ref_id}"))
+  
 
