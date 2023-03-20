@@ -24,7 +24,7 @@
     load_secrets()
     merdata <- file.path(glamr::si_path("path_msd"))
     file_path <- return_latest(folderpath = merdata,
-      pattern = "Genie-PSNUByIMs-Zambia")
+      pattern = "PSNU_IM_FY21-23_20230210.*Zambia")
     
     #site_path <- return_latest(folderpath = merdata, 
     #                           pattern = "Genie-SiteByIMs-Zambia")
