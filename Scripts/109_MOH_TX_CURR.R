@@ -34,13 +34,16 @@
   msd_path <- return_latest(merdata, "_PSNU_IM_FY21-23.*Zambia") # grabs clean data
   txcurr_path <- ("Data/TXCURR by 5-year age bands.xlsx") #changed provinces: LusakaP and NorthWestern to match 
  
+  # TODO: Create a google sheet with the modified TX_CURR data so we can read directly from drive and not worry
+  # about modifictions 
+  
   # USE PLHIV from DATAPACK
   dp_path <- "Data/2023-03-27 Target Setting Tool_For Check point 1 1812.xlsx"  
    
   #Grab metadata
     
   #REF ID for plots
-      ref_id <- "6dfb637d"
+    ref_id <- "6dfb637d"
       
   #Functions  
     gt_format <- function(gt_obj){
@@ -61,9 +64,33 @@
                    art_gap = "ART Gap", 
                    artgap_share = "Agency Gap share") %>% 
         gt_theme_nytimes() 
-        }
+    }
+    
+    get_hist <- function(df, metric, bins = 30, lines = 13) {
+      df %>%
+        ggplot(aes(x = {{ metric }}, fill = ..x..)) +
+        geom_histogram(bins = bins, color = "white") +
+        scale_y_continuous(expand = c(0.01, 0)) +
+        theme(
+          axis.text.y = element_blank(),
+          legend.position = "none"
+        ) +
+        labs(x = NULL, y = NULL) +
+        geom_hline(yintercept = seq(0, lines), linewidth = 0.1, color = "White") +
+        si_style_xline() +
+        theme(
+          axis.text.y = element_blank(),
+          axis.ticks.x = element_line(size = 0.5, color = "#d3d3d3")
+        )
+    }
  
-     
+    get_limit <- function(df, var){
+      df %>% 
+        summarize(max = abs({{var}})) %>% 
+        pull(max)
+    }
+ 
+    
 
 # LOAD DATA ============================================================================  
 
@@ -85,7 +112,7 @@
     header2 <- read_excel(txcurr_path, range = "TXCURR!A1:AI2", n_max = 1) %>% #used "range" to specify columns
       janitor::clean_names() 
     
-    view(header2)
+    #view(header2)
     
     #data_body - includes districts/provinces + sex + values 
     data_body2 <- read_excel(txcurr_path, sheet = "TXCURR", skip = 2) %>% 
@@ -93,7 +120,7 @@
     
     
     names(data_body2)
-    view(data_body2)
+    #view(data_body2)
     
     #PEPFAR
     df_msd <- read_psd(msd_path)
@@ -119,6 +146,7 @@
     zmb_geo <- purrr::map(3:5, ~spdf_pepfar %>% gisr::extract_boundaries(country = cntry, 
                                                                          level = .x))
     names(zmb_geo) <- list("adm0", "snu1", "psnu")
+    plot(zmb_geo$psnu)
 
 # MUNGE ============================================================================
   
@@ -145,7 +173,7 @@
                    values_to = "age") %>% 
       mutate(cw_number = str_remove_all(cw_number, "x")) %>% 
       fill(age, .direction = c("down")) #misreading the age order
-    view(txcurr_cw) 
+    #view(txcurr_cw) 
     
     
     #check merge is compatible 
@@ -347,6 +375,63 @@
            subtitle = "PLHIV gap represented by space between PLHIV estimates & TX_CURR",
            caption = glue("Source: COP23 Datapack and GOZ MOH ART Database")) %>% 
     si_save("Graphics/COP23_PLHIV_GAP_updated.svg")
+    
+
+#  MAPS -------------------------------------------------------------------
+    http://127.0.0.1:46161/graphics/plot_zoom_png?width=1216&height=620
+# Create a map of PLHIV estimates
+    gap_limit <- calc_agency_gap(df_cop23_est, psnu, psnuuid) %>% 
+      summarise(max = max(abs(art_gap))) %>% pull()
+    
+    zmb_geo$psnu %>% 
+      left_join(., calc_agency_gap(df_cop23_est, psnu, psnuuid), by = c("uid" = "psnuuid")) %>% 
+      ggplot() +
+      geom_sf(aes(fill = art_gap)) +
+      geom_sf(data = snu1_geo, fill = NA, color = "white") +
+      geom_sf(data = zmb_geo$adm0, fill = NA, color = grey90k, stroke = 1.5) +
+      si_style_map() +
+      scale_fill_viridis_c(alpha = 0.85,
+                           labels = comma, 
+                           option = "A",
+                           limits = c(0, gap_limit),
+                           na.value = trolley_grey_light) +
+      si_legend_fill() +
+      labs(x = NULL, y = NULL, fill = "Gap between MOH TX and COP23 PLHIV",
+           title = "COP23 ART Gap",
+           caption = "Source: COP23 Datapack and GOZ MOH ART Database") %>%  
+      si_save("Images/COP23_art_gap_district_map.png")
+    
+    
+    zmb_geo$psnu %>% 
+      left_join(., calc_agency_gap(df_cop23_est, psnu, psnuuid), by = c("uid" = "psnuuid")) %>% 
+      ggplot() +
+      geom_sf(aes(fill = tx_share)) +
+      si_style_map() +
+      scale_fill_viridis_c(alpha = 0.85, 
+                           labels = comma) +
+      si_legend_fill()  
+    
+    
+    
+  # See here for how I integrated histograms into maps using patchwork
+  # here: 
+    #https://github.com/tessam30/COP22_foraging/blob/e494b50f88f424166948bff5ee8ec670e4f44b6b/Scripts/2022_03_01_COP22_PLHIV_maps.R
+    # Histogram
+    get_hist(calc_agency_gap(df_cop23_est, psnu, psnuuid), art_gap, lines = 50) +
+      scale_x_continuous(
+       labels = comma,
+      ) +
+      scale_fill_viridis_c(
+        alpha = 0.85, 
+        direction = 1,
+        labels = comma,
+        guide = "none"
+      )
+      
+  #TODO: Created District maps for PLHIV and TX_CURR
+  # Try to integrate the histogram on the map to show the distribution
+  # of the indicator that you are mapping.
+    
     
             
 # VIZ ============================================================================
