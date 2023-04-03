@@ -23,24 +23,26 @@
     library(gagglr)
     library(readxl)
     library(glue)
-    
+  
+  # NOTES - EDITED EXCEL FILE IN THE FOLLOWING MANNER
+  # 1) Flag Lusaka province as LusakaP so we can distinguish from PSNU
+  # 2) Removed "-" in NorthWestern
+  # 3) Carried "Area" name down into cell A3
     
   # SI specific paths/functions  
     load_secrets()
     merdata <- file.path(glamr::si_path("path_msd"))
-    plhiv_path <- ("Zambia/PLHIV estimates by age band.xlsx") #moved the "Area" title up + added "LusakaP" + fixed "North-Western"
-    msd_path <- return_latest(merdata, "MER_Structured_Datasets_PSNU_IM_FY21-23_20230210_v1_1_Zambia")
-  
-
-      
-  # Grab metadata
-  
+    plhiv_path <- ("Data/PLHIV estimates by age band.xlsx") #moved the "Area" title up + added "LusakaP" + fixed "North-Western"
+    msd_path <- return_latest(merdata, "PSNU_IM_FY21-23_20230210.*Zambia")
+    
+    # get msd metadata
+    get_metadata(msd_path)
   
   # REF ID for plots
     ref_id <- "ba2c9f8b"
     
-  # Functions  
-  
+  # pull in agency cw  
+    prov_agency_cw <- googlesheets4::read_sheet(ss = "1JUxbHkOg_k5yHWJ9A7PZOmU6Pj_i2UbgDTpU4mhuw6o")
 
 # LOAD DATA ============================================================================  
     # Check sheet names in file; keep header and body of data, we'll pivot and use
@@ -52,12 +54,9 @@
     header2 <- read_excel(plhiv_path, range = "Sheet1!A1:O2", n_max = 1) %>% #used "range" to specify columns
       janitor::clean_names() 
         
-    
-
     #data_body - includes districts/provinces + sex + values 
     data_body2 <- read_excel(plhiv_path, sheet = "Sheet1", skip = 2) %>% 
       janitor::clean_names() 
-    
     
     names(data_body2)
     view(data_body2)
@@ -108,12 +107,40 @@
     # Check that the merge variables are compatible types
     map(list(pl_hiv$cw_number, pl_hiv_cw$cw_number), ~summary(.x))
     
-    plhiv_est_df <- pl_hiv %>% left_join(., pl_hiv_cw)
+    # Join data sets, tag USAID / CDC provinces
+    plhiv_est_df <- pl_hiv %>% left_join(., pl_hiv_cw) %>% 
+      left_join(prov_agency_cw %>% mutate(snu1 = ifelse(snu1 == "Lusaka", "LusakaP", snu1)),
+                by = c("prov_tag" = "snu1"))
     view(plhiv_est_df)
     
     #summary 
     plhiv_est_df%>% 
-      summarize(plhiv = sum(plhiv)) #total is 1,411,776
+      summarize(plhiv = sum(plhiv)) #total is 1,411,776 - matches Excel
+    
+    # How does CDC v USAID breakdown compare?
+    plhiv_est_df %>% 
+      rename(snu1 = prov_tag) %>% 
+      mutate(snu1 = ifelse(snu1 == "LusakaP", "Lusaka", snu1)) %>% 
+      group_by(snu1, snu1_agency, sex) %>% 
+      summarise(plhiv = sum(plhiv), .groups = "drop") %>% 
+      mutate(plhiv_sh = plhiv/sum(plhiv)) %>% 
+      arrange(snu1_agency, plhiv_sh) %>% 
+      group_by(sex, snu1_agency) %>% 
+      mutate(agency_sh = cumsum(plhiv_sh))
+    
+    plhiv_est_df <- 
+      plhiv_est_df %>% 
+      mutate(psnu = case_when(
+        psnu == "Chiengi" ~ "Chienge",
+        psnu == "Kapiri Mposhi" ~ "Kapiri-Mposhi",
+        psnu == "Senga Hill" ~ "Senga",
+        psnu == "Mushindano" ~ "Mushindamo",
+        psnu == "Milengi" ~ "Milenge",
+        psnu == "Shangombo" ~ "Shang'ombo" ,
+        psnu == "Chikankanta" ~ "Chikankata",
+        TRUE ~ psnu
+      ))
+    
   
 # VIZ ============================================================================
 
