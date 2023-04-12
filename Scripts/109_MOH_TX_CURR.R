@@ -25,6 +25,7 @@
   library(glue)
   library(gt)
   library(gtExtras)
+  library(tameDP)
 
 
   #SI specific paths/functions  
@@ -32,13 +33,13 @@
   merdata <- file.path(glamr::si_path("path_msd"))
   shpdata <- file.path(glamr::si_path("path_vector")) # for shapefiles
   msd_path <- return_latest(merdata, "_PSNU_IM_FY21-23.*Zambia") # grabs clean data
-  txcurr_path <- ("Data/TXCURR by 5-year age bands.xlsx") #changed provinces: LusakaP and NorthWestern to match 
+  txcurr_path <- ("Zambia/TXCURR by 5-year age bands.xlsx") #changed provinces: LusakaP and NorthWestern to match 
  
   # TODO: Create a google sheet with the modified TX_CURR data so we can read directly from drive and not worry
   # about modifictions 
   
   # USE PLHIV from DATAPACK
-  dp_path <- "Data/2023-03-27 Target Setting Tool_For Check point 1 1812.xlsx"  
+  dp_path <- "Zambia/03.27. 23 3pm Pull_Target Setting Tool_For Check point 1 1812.xlsx"
    
   #Grab metadata
     
@@ -137,7 +138,7 @@
     
     
     # LOAD shapefiles -- These are the new ones
-    snu1_geo <- st_read("../Zambezi/GIS/snu1_fy22.shp") %>% 
+    snu1_geo <- st_read("Zambia/GIS/snu1_fy22.shp") %>%  #changed to location of shpfiles 
       mutate(prov = str_remove_all(snu1, " Province"))
     plot(snu1_geo)
     
@@ -301,7 +302,7 @@
                   decimals = 0) %>% 
       tab_header(title = "TREATMENT GAP BY FUNDING AGENCY") %>% 
       gt_color_rows(art_gap, palette = RColorBrewer::brewer.pal("Reds", n = 6)) %>% 
-      gtsave_extra( filename = "Images/COP23_tx_gap_agency.png")
+      gtsave_extra( filename = "Images/COP23_tx_gap_agency.png") #need pkge "webshot2" 
       
     
   # By agency age
