@@ -74,7 +74,12 @@
   
 # VIZ ============================================================================
 
-  #  
+  dp %>% 
+   filter(indicator == "HTS_TST_POS", 
+          ageasentered %in% c("01-09", '10-14')) %>%  
+          #standardizeddisaggregate == "Modality/Age/Sex/Result") %>% 
+   group_by(fiscal_year, indicator, standardizeddisaggregate) %>% 
+   summarise(sum = sum(targets, na.rm = T))
 
 # SPINDOWN ============================================================================
 
