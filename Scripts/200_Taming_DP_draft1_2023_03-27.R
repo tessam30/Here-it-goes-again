@@ -54,6 +54,14 @@
     mutate(diff = `2024` - `2023`,
            delta = ((`2024`/`2023`) - 1) %>% percent(., 1))
   
+  # Check AGYW PREV Numbers
+  dp %>% 
+    clean_indicator() %>% 
+    filter(indicator %in% c("AGYW_PREV")) %>% 
+    group_by(indicator, standardizeddisaggregate, fiscal_year) %>% 
+    summarise(targets = sum(targets, na.rm = T), .groups = "drop")
+  
+  
   gs_id <- "1gQioul3yS1o92OAqEVGU6vFjlt4MkNQTqmy9TxxAug0"
   googlesheets4::sheet_write(dp_tgs, ss = gs_id, sheet = 3)
 
@@ -163,20 +171,29 @@
               vjust = -0.5, 
               color = grey50k,
               position = position_nudge(x = -0.1)) +
-    geom_col(data = . %>% filter(source == "mer" & indicator != "CLHIV"), aes(fill = fill_col), width = 0.5) +
-    geom_text(data = . %>% filter(source == "mer" & indicator != "CLHIV"), 
+    geom_col(data = . %>% filter(source == "subnat" & indicator != "CLHIV"), aes(fill = fill_col), width = 0.5) +
+    geom_text(data = . %>% filter(source == "subnat" & indicator != "CLHIV"), 
               aes(label = comma(value)), size = 10/.pt,
               family = "Source Sans Pro",
               vjust = -0.5, 
               color = grey90k) +
-    geom_label(data = . %>% filter(source == "mer" & indicator != "CLHIV"), 
+    geom_label(data = . %>% filter(source == "subnat" & indicator != "CLHIV"), 
                aes(label = percent(absolute_val, 1)), size = 10/.pt,
                family = "Source Sans Pro",
                vjust = 1.2) +
     scale_fill_identity() +
     si_style_ygrid() +
-    scale_y_continuous(labels = label_number_si(), limits = c(0, 65000)) +
+    scale_y_continuous( limits = c(0, 65000), labels = label_number_si()) +
     labs(x = NULL, y = NULL,
          caption = glue("Source: Target Setting Tool 2023-04-14 & {metadata$source}"))
-  si_save("Images/zmb_cascade_mer_cop23_absolute.png")
+  si_save("Images/zmb_cascade_subnat_cop23_absolute.png")
          
+  
+  
+  
+  subnat_df %>% 
+    filter(operatingunit == "Zambia", indicator == "PLHIV", 
+           ageasentered %in% c("01-04", "05-09", "10-14"),
+           fiscal_year == 2022) %>% 
+    summarize(tgt = sum(qtr4, na.rm = T))
+  

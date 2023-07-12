@@ -23,11 +23,9 @@
   # SI specific paths/functions  
     load_secrets()
     merdata <- file.path(glamr::si_path("path_msd"))
-    file_path <- return_latest(folderpath = merdata,
-      pattern = "PSNU_IM_FY21-23_20230210.*Zambia")
+    file_path <- return_latest(folderpath = merdata, pattern = "Genie.*Zambia")
     
-    #site_path <- return_latest(folderpath = merdata, 
-    #                           pattern = "Genie-SiteByIMs-Zambia")
+  df_genie <- read_psd(file_path)
     
   # Grab metadata
    get_metadata(file_path)
