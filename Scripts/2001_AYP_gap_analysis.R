@@ -125,7 +125,7 @@
              TRUE ~ moody_blue
            )) %>% 
     ggplot(aes(y = HTS_TST_share, x = art_gap)) +
-    geom_polygon(data = lower_fill, aes(x = x, y = y), fill = grey10k) +
+    geom_polygon(data = lower_fill, aes(x = x, y = y), fill = grey10k, alpha = 0.5) +
     geom_abline(intercept = 0, slope = 1, color = grey50k) +
     geom_point(aes(size = HTS_TST_share, color = snu1_fill), shape = 16) +
     geom_point(aes(size = HTS_TST_share), shape = 1) +
