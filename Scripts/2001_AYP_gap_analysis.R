@@ -111,19 +111,33 @@
     pivot_wider(names_from = "indicator") %>% 
     mutate(across(c(where(is.double)), ~(.x / sum(.x, na.rm = T)), .names = "{.col}_share")) 
   
-  df_gap_ayp %>% left_join(df_msd_tst) %>% 
-    mutate(snu1 = str_remove_all(snu1, " Province")) %>% 
+  # Fill below the triangle
+  # https://stackoverflow.com/questions/46076577/colour-area-above-diagonal-in-the-plot-as-red-and-below-as-green-in-r-with-ggplo
+  lower_fill = data.frame(x = c(0, 0.3, 0.3), y= c(0, 0, 0.3))
+  
+  df_gap_ayp %>% 
+    left_join(df_msd_tst) %>% 
+    mutate(snu1 = str_remove_all(snu1, " Province"),
+           gap_ratio = HTS_TST_share / art_gap,
+           snu1_fill = case_when(
+             gap_ratio > 1 ~ genoa,
+             gap_ratio < 0.95 ~ old_rose,
+             TRUE ~ moody_blue
+           )) %>% 
     ggplot(aes(y = HTS_TST_share, x = art_gap)) +
+    geom_polygon(data = lower_fill, aes(x = x, y = y), fill = grey10k) +
     geom_abline(intercept = 0, slope = 1, color = grey50k) +
-    geom_point() +
+    geom_point(aes(size = HTS_TST_share, color = snu1_fill), shape = 16) +
+    geom_point(aes(size = HTS_TST_share), shape = 1) +
     ggrepel::geom_text_repel(aes(label = snu1)) +
     scale_x_continuous(labels = percent, limits = c(0, 0.3), breaks = seq(0, 0.3, 0.05)) +
     scale_y_continuous(labels = percent, limits = c(0, 0.3), breaks = seq(0, 0.3, 0.05)) +
     si_style() +
-    scale_color_viridis_c(option = "B", direction = -1)+
-    labs(title = "AYP TESTING", 
-         caption = glue("{metadata$caption} & COP23 FLATPACK"))
-  si_save("Graphics/AYP_hts_tst_to_art_gap_scatter2.svg", height = 8, width = 8)
+    scale_color_identity() +
+    labs(title = "FOUR OF THE TEN PROVINCES HAVE AN ESTIMATED AYP ART \nGAP LARGER THAN THE TESTING SHARE.\nMORE TESTING MAY BE NEEDED HERE.", 
+         caption = glue("{metadata$caption} & COP23 FLATPACK")) +
+    coord_equal()
+  si_save("Images/AYP_hts_tst_to_art_gap_scatter2.png", height = 8, width = 8)
 
   # ART GAP SUMMARY
   df_gap_ayp %>% 
@@ -139,7 +153,7 @@
          y = NULL,
          title = "COPPERBELT HAS THE LARGEST ESTIMATED ART GAP FOR AYPS (15-24 years)",
          caption = glue("{metadata$caption} & COP23 FLATPACK"))
-  si_save("Images/AYP_art_gap_snu1_summary.png")
+  si_save("Images/AYP_art_gap_snu1_summary.png",  height = 8, width = 8)
 
 # PEDs GAP summary --------------------------------------------------------
 
