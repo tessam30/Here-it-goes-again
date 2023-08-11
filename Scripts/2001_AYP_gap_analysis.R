@@ -194,16 +194,27 @@
     pivot_wider(names_from = "indicator") %>% 
     mutate(across(c(where(is.double)), ~(.x / sum(.x, na.rm = T)), .names = "{.col}_share")) 
   
+  lower_fill = data.frame(x = c(0, 0.35, 0.35), y= c(0, 0, 0.35))
+  
   df_gap_peds %>% left_join(df_msd_tst_peds) %>% 
-    arrange(HTS_TST_share)
+    arrange(HTS_TST_share) %>% 
     mutate(snu1 = str_remove_all(snu1, " Province")) %>% 
+    mutate(snu1 = str_remove_all(snu1, " Province"),
+           gap_ratio = HTS_TST_share / art_gap,
+           snu1_fill = case_when(
+             gap_ratio > 1 ~ genoa,
+             gap_ratio < 0.95 ~ old_rose,
+             TRUE ~ moody_blue
+           )) %>% write_csv("Dataout/ZMB_PEDS_Gap_analysis.csv")
     ggplot(aes(y = HTS_TST_share, x = art_gap)) +
+    geom_polygon(data = lower_fill, aes(x = x, y = y), fill = grey10k, alpha = 0.5) +
     geom_abline(intercept = 0, slope = 1, color = grey50k) +
-    geom_point(aes(size = (HTS_TST_POS_share))) +
+    geom_point(aes(size = HTS_TST_POS_share, color = snu1_fill)) +
     ggrepel::geom_text_repel(aes(label = snu1)) +
     scale_x_continuous(labels = percent, limits = c(0, 0.35), breaks = seq(0, 0.35, 0.05)) +
     scale_y_continuous(labels = percent, limits = c(0, 0.35), breaks = seq(0, 0.35, 0.05)) +
     si_style() +
+    scale_color_identity() +
     theme(legend.position = "none") +
     labs(title = "PEDS TESTING", 
          caption = glue("{metadata$caption} & COP23 FLATPACK")) 
