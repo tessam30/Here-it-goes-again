@@ -4,7 +4,7 @@
 # REF ID:   7be07a44
 # LICENSE: MIT
 # DATE: 2023-03-27
-# UPDATE: 2023-08-
+# UPDATE: 2023-08-24
 # NOTES: Tim Essam | SI
 
 # LOCALS & SETUP ============================================================================
@@ -25,6 +25,7 @@
     load_secrets()
     merdata <- file.path(glamr::si_path("path_msd"))
     dp_path <- "../../../Downloads/2023-04-14 Target Setting Tool_5PM.xlsx"
+    #dp_path <- "Data/2023-04-14 Target Setting Tool_5PM.xlsx"
     
     msd_path <- return_latest(merdata, "PSNU_IM.*Zambia")
     
@@ -79,8 +80,10 @@
            standardizeddisaggregate == "Age/Sex/HIVStatus",
            ageasentered %in% c("15-19", "20-24"), 
            #ageasentered %in% c("<01", "01-04", "05-09", "10-14"),
-           fiscal_year == 2023) %>% 
-    group_by(snu1) %>% 
+           #fiscal_year == 2023
+           fiscal_year %in% 2021:2023
+           ) %>% 
+    group_by(fiscal_year, snu1) %>% 
     summarise(tx_curr_q2FY23 = sum(cumulative, na.rm = T)) %>% 
     ungroup()
   
@@ -92,7 +95,7 @@
     group_by(snu1, indicator, standardizeddisaggregate) %>% 
     summarise(total = sum(targets, na.rm = T), .groups = "drop") %>% 
     spread(indicator, total) %>% 
-    left_join(df_msd_tx, by = c("snu1")) %>% 
+    left_join(filter(df_msd_tx, fiscal_year == 2023), by = c("snu1")) %>% 
     mutate(gap = PLHIV - TX_CURR_SUBNAT,
            gap2 = PLHIV - tx_curr_q2FY23, 
            gap_sh = gap / sum(gap),
@@ -105,9 +108,10 @@
     filter(indicator %in% c("HTS_TST", "HTS_TST_POS"), 
            standardizeddisaggregate == "Modality/Age/Sex/Result", 
            ageasentered %in% c("15-19", "20-24"),
-           fiscal_year == metadata$curr_fy, 
+           #fiscal_year == metadata$curr_fy, 
+           fiscal_year %in% 2021:metadata$curr_fy, 
            str_detect(snu1, "_Mil", negate = T)) %>% 
-    group_by(indicator, snu1) %>% 
+    group_by(fiscal_year, indicator, snu1) %>% 
     summarise(value = sum(cumulative, na.rm = T), .groups = "drop") %>% 
     pivot_wider(names_from = "indicator") %>% 
     mutate(across(c(where(is.double)), ~(.x / sum(.x, na.rm = T)), .names = "{.col}_share")) 
@@ -138,6 +142,7 @@
     labs(title = "FOUR OF THE TEN PROVINCES HAVE AN ESTIMATED AYP ART \nGAP LARGER THAN THE TESTING SHARE.\nMORE TESTING MAY BE NEEDED HERE.", 
          caption = glue("{metadata$caption} & COP23 FLATPACK")) +
     coord_equal()
+  
   si_save("Images/AYP_hts_tst_to_art_gap_scatter2.png", height = 8, width = 8)
 
   # ART GAP SUMMARY
@@ -154,6 +159,7 @@
          y = NULL,
          title = "COPPERBELT HAS THE LARGEST ESTIMATED ART GAP FOR AYPS (15-24 years)",
          caption = glue("{metadata$caption} & COP23 FLATPACK"))
+  
   si_save("Images/AYP_art_gap_snu1_summary.png",  height = 8, width = 8)
 
 # PEDs GAP summary --------------------------------------------------------
@@ -237,3 +243,49 @@
          title = "LUSAKA HAS THE LARGEST ESTIMATED ART GAP FOR PEDS (15-24 years)",
          caption = glue("{metadata$caption} & COP23 FLATPACK"))
     
+# OUTPUT Raw data for OG
+  
+  df_subnat %>% glimpse()
+  df_subnat %>% distinct(indicator)
+  
+  df_subnat_out <- df_subnat %>% 
+    filter(indicator %in% c("PLHIV", "TX_CURR_SUBNAT"), 
+           standardizeddisaggregate == "Age/Sex/HIVStatus",
+           ageasentered %in% c("<01", "01-04", "05-09", "10-14"),
+           fiscal_year %in% 2021:2023) %>% 
+    group_by(fiscal_year, snu1, indicator) %>% 
+    summarise(targets = sum(targets, na.rm = T)) %>% 
+    ungroup() %>% 
+    pivot_wider(names_from = indicator, values_from = targets)
+  
+  df_msd_tx_peds_out <- df_msd %>% 
+    filter(indicator %in% c("TX_CURR"), 
+           standardizeddisaggregate == "Age/Sex/HIVStatus",
+           ageasentered %in% c("<01", "01-04", "05-09", "10-14"),
+           fiscal_year %in% 2021:2023) %>% 
+    group_by(fiscal_year, snu1) %>% 
+    summarise(tx_curr = sum(cumulative, na.rm = T)) %>% 
+    ungroup()
+  
+  df_msd_tst_peds_out <- 
+    df_msd %>% 
+    filter(indicator %in% c("HTS_TST", "HTS_TST_POS"), 
+           standardizeddisaggregate == "Modality/Age/Sex/Result", 
+           ageasentered %in% c("<01", "01-04", "05-09", "10-14"),
+           fiscal_year == 2021:metadata$curr_fy, 
+           str_detect(snu1, "_Mil", negate = T)) %>% 
+    group_by(fiscal_year, indicator, snu1) %>% 
+    summarise(value = sum(cumulative, na.rm = T), .groups = "drop") %>% 
+    pivot_wider(names_from = "indicator") %>% 
+    mutate(across(c(where(is.double)), ~(.x / sum(.x, na.rm = T)), .names = "{.col}_share")) 
+  
+  df_msd_peds_out <- df_subnat_out %>% 
+    left_join(df_msd_tx_peds_out, by = c("fiscal_year", "snu1")) %>% 
+    left_join(df_msd_tst_peds_out, by = c("fiscal_year", "snu1")) %>% 
+    filter(str_detect(snu1, "_Mil", negate = T)) %>% 
+    rename_with(.fn = str_to_upper)
+  
+  df_msd_peds_out %>% 
+    write_csv(file = "./Dataout/Zambia - Historical TX and TST Data.csv",
+              na = "")
+  
